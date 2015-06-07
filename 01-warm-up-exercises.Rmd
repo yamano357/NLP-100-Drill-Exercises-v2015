@@ -1,0 +1,497 @@
+---
+title: "言語処理100本ノック 第1章:準備運動"
+author: '@yamano357'
+date: "2015年6月7日"
+output:
+  html_document:
+    theme: readable
+    toc: true
+    toc_depth: 2
+    number_sections: false
+---
+
+---
+
+---
+
+
+# 概要
+前書き（言語処理100本ノックについて）  
+- 本稿では、東北大学の乾・岡崎研究室で公開されている[言語処理100本ノック（2015年版）](http://www.cl.ecei.tohoku.ac.jp/nlp100/)を、R言語で解いていきます。  
+- [改訂前の言語処理100本ノック](http://www.cl.ecei.tohoku.ac.jp/index.php?NLP%20100%20Drill%20Exercises)も同様に上記研究室のサイトにあります。
+
+- 上記のふたつをご覧いただき、下記に進んでいただけますと幸いです。  
+
+---
+
+前書き（Rに関して）  
+- Rの構文や関数についての説明は一切ありませんので、あらかじめご了承ください。  
+- 本稿では、{base}にある文字列処理ではなく、{stringr}（1.0.0以上）とパイプ処理を極力用いております（{stringi}も処理に応じて活用していきます）。課題によってはパイプ処理でこなすのに向かない状況もありますので、あらかじめご了承ください。  
+
+---
+
+参考ページ  
+　[hadley/stringr](https://github.com/hadley/stringr)  
+　[RPubs - このパッケージがすごい2014: stringr](https://rpubs.com/uri-sy/demo_stringr)  
+　[stringiで輝く☆テキストショリスト](http://qiita.com/kohske/items/85d49da04571e9055c44)  
+　[stringr 1.0.0を使ってみる](http://notchained.hatenablog.com/entry/2015/05/01/011703)
+
+---
+
+ご意見やご指摘など  
+- こうした方が良いやこういう便利な関数がある、間違いがあるなど、ご指摘をお待ちしております。  
+- 下記のいずれかでご連絡・ご報告いただけますと励みになります（なお、Gitに慣れていない人です）。  
+　[Twitter](https://twitter.com/yamano357), [GitHub](https://github.com/yamano357/NLP-100-Drill-Exercises-v2015)  
+
+---
+
+---
+
+# Rコード  
+- 以下、ひたすら解いていきます。  
+
+## パッケージ読み込み
+```{r read_lib, message = FALSE}
+library(knitr)
+library(dplyr)
+library(stringr)
+library(stringi)
+knitr::opts_chunk$set(comment = NA)
+```
+
+---
+
+## 00. 文字列の逆順
+文字列"stressed"の文字を逆に（末尾から先頭に向かって）並べた文字列を得よ．
+```{r nlp100_knock_00}
+
+TASK_STRING_00 <- "stressed"
+stringr::str_split(string = TASK_STRING_00, pattern = "") %>% 
+  unlist %>%
+  rev %>%
+  stringr::str_c(collapse = "")
+
+# {stringi}のstri_reverse()を使う場合
+stringi::stri_reverse(str = TASK_STRING_00)
+```
+
+---
+
+## 01. 「パタトクカシーー」
+「パタトクカシーー」という文字列の1,3,5,7文字目を取り出して連結した文字列を得よ．
+```{r nlp100_knock_01}
+
+TASK_STRING_01 <- "パタトクカシーー"
+TASK_INDEX_01 <- c(1, 3, 5, 7)
+
+stringr::str_sub(
+  string = TASK_STRING_01,
+  start = TASK_INDEX_01, end = TASK_INDEX_01
+) %>%
+  stringr::str_c(collapse = "")
+
+# 添字操作をまぜる
+(
+  stringr::str_split(string = TASK_STRING_01, pattern = "") %>%
+  unlist
+)[TASK_INDEX_01] %>%
+  stringr::str_c(collapse = "")
+```
+
+---
+
+## 02. 「パトカー」＋「タクシー」＝「パタトクカシーー」
+「パトカー」＋「タクシー」の文字を先頭から交互に連結して文字列「パタトクカシーー」を得よ．
+```{r nlp100_knock_02}
+
+TASK_VEC_02 <- c("パトカー", "タクシー")
+
+stringr::str_split(string = TASK_VEC_02, pattern = "") %>%
+  unlist %>%
+  matrix(nrow = length(TASK_VEC_02), byrow = TRUE) %>% 
+  stringr::str_c(collapse = "")  
+```
+
+---
+
+## 03. 円周率
+"Now I need a drink, alcoholic of course, after the heavy lectures involving quantum mechanics."という文を単語に分解し，各単語の（アルファベットの）文字数を先頭から出現順に並べたリストを作成せよ．
+
+```{r nlp100_knock_03}
+
+TASK_STRING_03 <- "Now I need a drink, alcoholic of course, after the heavy lectures involving quantum mechanics."
+
+stringr::str_replace_all(
+  string = TASK_STRING_03, pattern = ",|\\.", replacement = ""
+) %>%
+  stringr::str_split(pattern = " ") %>% 
+  unlist %>%
+  stringr::str_length()
+  
+# 円周率
+sprintf("%1.14f", pi)
+```
+
+---
+
+## 04. 元素記号
+"Hi He Lied Because Boron Could Not Oxidize Fluorine. New Nations Might Also Sign Peace Security Clause. Arthur King Can."という文を単語に分解し，1, 5, 6, 7, 8, 9, 15, 16, 19番目の単語は先頭の1文字，それ以外の単語は先頭に2文字を取り出し，取り出した文字列から単語の位置（先頭から何番目の単語か）への連想配列（辞書型もしくはマップ型）を作成せよ．
+
+```{r nlp100_knock_04}
+
+TASK_INDEX_04 <- c(1, 5, 6, 7, 8, 9, 15, 16, 19)
+TASK_STRING_04 <- "Hi He Lied Because Boron Could Not Oxidize Fluorine. New Nations Might Also Sign Peace Security Clause. Arthur King Can."
+
+str_04 <- stringr::str_replace_all(
+  string = TASK_STRING_04, pattern = ",|\\.", replacement = ""
+) %>%
+  stringr::str_split(pattern = " ") %>%
+  unlist
+
+res_04 <- character(length = length(str_04))
+names(res_04) <- seq(from = 1, to = length(str_04))
+
+res_04[TASK_INDEX_04] <- (
+  str_04 %>%
+    stringr::str_split(pattern = " ") %>%
+    unlist
+  )[TASK_INDEX_04] %>% 
+    stringr::str_sub(start = 1, end = 1)
+
+res_04[setdiff(seq(from = 1, to = length(str_04)), TASK_INDEX_04)] <- (
+  str_04 %>%
+    stringr::str_split(pattern = " ") %>%
+    unlist
+  )[setdiff(seq(from = 1, to = length(str_04)), TASK_INDEX_04)] %>% 
+    stringr::str_sub(start = 1, end = 2)
+
+# マグネシウムが"Mg"でないけどOK
+res_04
+```
+
+---
+
+## 05. n-gram
+与えられたシーケンス（文字列やリストなど）からn-gramを作る関数を作成せよ．この関数を用い，"I am an NLPer"という文から単語bi-gram，文字bi-gramを得よ．
+
+```{r nlp100_knock_05}
+# 文字列単体とベクトルで与えた場合に対応
+calcNGram <- function (
+  input_seq,
+  ngram_param = list(
+    type = "char",
+    n = 2
+  )
+) {
+
+  if (is.element("char", ngram_param$type)) {
+    input_seq <- input_seq %>% 
+      stringr::str_replace_all(
+        pattern = " ",
+        replacement = ""
+      ) %>% str_split(pattern = "") %>%
+      unlist
+  }
+
+  return(
+    embed(
+      x = input_seq %>% stringr::str_split(pattern = " ") %>% unlist,
+      dimension = ngram_param$n
+    )[, seq(from = ngram_param$n, to = 1), drop = FALSE]
+  )
+}
+
+list(
+  word_bi_gram = calcNGram(
+    # 文字列
+    input_seq = "I am an NLPer",
+    ngram_param = list(
+      type = "word",
+      n = 2
+    )
+  ),
+  char_bi_gram = calcNGram(
+    # リスト（Rでは文字列ベクトル）
+    input_seq = c("I", "am", "an", "NLPer"),
+    ngram_param = list(
+      type = "char",
+      n = 2
+    )
+  )
+)
+
+```
+
+---
+
+
+## 06. 集合
+"paraparaparadise"と"paragraph"に含まれる文字bi-gramの集合を，それぞれ, XとYとして求め，XとYの和集合，積集合，差集合を求めよ．さらに，'se'というbi-gramがXおよびYに含まれるかどうかを調べよ．
+
+```{r nlp100_knock_06}
+
+TASK_STRING_06 <- c(X = "paraparaparadise", Y = "paragraph")
+
+# 05で定義した関数を利用
+x_set_06 <- calcNGram(
+  input_seq = TASK_STRING_06["X"],
+  ngram_param = list(
+    type = "char",
+    n = 2
+  )
+) %>% 
+  apply(., MARGIN = 1, FUN = stringr::str_c, collapse = "") %>% 
+  unique
+
+y_set_06 <- calcNGram(
+  input_seq = TASK_STRING_06["Y"],
+  ngram_param = list(
+    type = "char",
+    n = 2
+  )
+) %>%
+  apply(., MARGIN = 1, FUN = stringr::str_c, collapse = "") %>% 
+  unique
+
+# X
+x_set_06
+
+# Y
+y_set_06
+
+
+# XとYの和集合
+union(x = x_set_06, y = y_set_06)
+
+# XとYの積集合
+intersect(x = x_set_06, y = y_set_06)
+
+# XとYの差集合
+setdiff(x = x_set_06, y = y_set_06)
+
+# XとYそれぞれに"se"が含まれるかどうか
+is.element(el = "se", set = x_set_06)
+is.element(el = "se", set = y_set_06)
+
+# XとYそれぞれに"se"が含まれるかどうか
+# is.element()の引数setを"se"にして、引数elをXとYそれぞれにすると、XとYのどの要素がマッチしたか判定できる
+
+# is.element(el = x_set_06, set = "se")
+# is.element(el = y_set_06, set = "se")
+
+# 含まれるかどうかだけなら、要素がTRUE時の添字を返すwhich()による戻り値のベクトルの長さで判定
+# length(which(is.element(el = x_set_06, set = "se"))) > 0
+# length(which(is.element(el = y_set_06, set = "se"))) > 0
+```
+
+---
+
+## 07. テンプレートによる文生成
+引数x, y, zを受け取り「x時のyはz」という文字列を返す関数を実装せよ．さらに，x=12, y="気温", z=22.4として，実行結果を確認せよ．
+```{r nlp100_knock_07}
+
+displayTimeMessage <- function (
+  x, y, z,
+  sep_str = c(" ", " ")
+) {
+  
+  arg_str <- c(x, y, z)
+
+  # 「連結する文字列ベクトル(arg_str)のサイズ」に合わせる
+  if (length(arg_str) != length(sep_str) + 1) {
+    sep_str <- sep_str[seq(from = 1, to = length(arg_str) - 1)]
+  }
+
+  join_res <- character(length = length(c(arg_str, sep_str)))
+  join_res[seq(from = 1, to = length(join_res), by = 2)] <- arg_str
+  join_res[seq(from = 2, to = length(join_res), by = 2)] <- sep_str
+
+  return(join_res %>% stringr::str_c(collapse = ""))
+}
+
+displayTimeMessage(
+  x = 12, y = "気温", z = 22.4,
+  sep_str = c("時の", "は")
+)
+
+```
+
+
+## 08. 暗号文
+与えられた文字列の各文字を，以下の仕様で変換する関数cipherを実装せよ．  
+- 英小文字ならば(219 - 文字コード)の文字に置換  
+- その他の文字はそのまま出力  
+この関数を用い，英語のメッセージを暗号化・復号化せよ．  
+
+```{r nlp100_knock_08}
+
+cipher <- function (
+  target_str,
+  cipher_param = list(
+    key = 219
+  )
+){
+  
+  cipherWord <- function (target_word) {
+    each_char <- target_word %>% 
+      stringr::str_split(pattern = "") %>% 
+      unlist
+    
+    cipher_idx <- each_char %>% 
+      stringr::str_detect(pattern = "[a-z]") %>% 
+      which
+    
+    if (length(cipher_idx) > 0) {
+      each_char[cipher_idx]  <- (219 - (
+        sapply(each_char[cipher_idx], charToRaw) %>%
+          as.integer
+        )
+      ) %>%
+        as.raw %>% 
+        rawToChar %>% 
+        stringr::str_split(pattern = "") %>%
+        unlist
+    }  
+
+    return (each_char %>% stringr::str_c(collapse = ""))    
+  }
+  
+  return (
+    stringr::str_conv(string = target_str, encoding = "UTF-8") %>%
+      stringr::str_split(pattern = " ") %>%
+      unlist %>% sapply(., cipherWord) %>% as.character
+  )
+}
+
+# 適当な文字列
+target_str_08 <- "Now I need a drink, alcoholic of course, after the heavy lectures involving quantum mechanics."
+
+cipher_res <- cipher(
+  target_str = target_str_08,
+  cipher_param = list(
+    key = 219
+  )
+) %>%
+  stringr::str_c(collapse = " ")
+
+decipher_res <- cipher(
+  target_str = cipher_res,
+  cipher_param = list(
+    key = 219
+  )
+) %>%
+  stringr::str_c(collapse = " ")
+
+# 暗号化の結果
+cipher_res
+
+# 復号化の結果
+decipher_res
+
+# 復号化した文字列が暗号化前と一致しているか確認
+decipher_res == target_str_08
+
+```
+
+---
+
+## 09. Typoglycemia
+スペースで区切られた単語列に対して，各単語の先頭と末尾の文字は残し，それ以外の文字の順序をランダムに並び替えるプログラムを作成せよ．ただし，長さが４以下の単語は並び替えないこととする．適当な英語の文（例えば"I couldn't believe that I could actually understand what I was reading : the phenomenal power of the human mind ."）を与え，その実行結果を確認せよ．
+
+```{r nlp100_knock_09}
+# 乱数種を指定できるようにしておく
+createTypoglycemiaString <- function (
+  target_str,
+  sort_seed = NULL
+) {
+
+  sortSubWord <- function (target_word, sort_seed) {
+    each_char <- target_word %>% 
+      stringr::str_split(pattern = "") %>% 
+      unlist
+    
+    shuffle_idx <- sample(
+      x = seq(from = 2, to = length(each_char) - 1 ),
+      size = length(each_char) - 2, 
+      replace = FALSE
+    )
+    
+    return (
+      c(
+        each_char[1], 
+        each_char[shuffle_idx],
+        each_char[length(each_char)]
+      ) %>%
+        stringr::str_c(collapse = "")
+    )
+  }
+
+  
+  res_str <- target_str %>% 
+    stringr::str_split(pattern = " ") %>%
+    unlist
+
+   sort_idx <- (
+     !(
+       res_str %>% 
+         stringr::str_length(string = .)
+      ) <= 4
+   ) %>% which
+   
+  if (!is.null(sort_seed)) {
+    set.seed(sort_seed)
+  }
+  sample_sort_seed <- sample(x = 1e10, size = length(sort_idx), replace = TRUE)
+  
+  res_str[sort_idx] <- mapply(
+    FUN = sortSubWord,
+    target_word = res_str[sort_idx],
+    sort_seed = sample_sort_seed
+  )
+     
+  return(res_str)
+}
+
+EX_STRING_09 <- "I couldn't believe that I could actually understand what I was reading : the phenomenal power of the human mind ."
+
+# 乱数種を指定して実行
+createTypoglycemiaString(
+  target_str = EX_STRING_09,
+  sort_seed = 10
+) %>% stringr::str_c(collapse = " ")
+
+# 乱数種を指定せずに実行
+createTypoglycemiaString(
+  target_str = EX_STRING_09,
+  sort_seed = NULL
+) %>% stringr::str_c(collapse = " ")
+
+```
+
+---
+
+---
+
+# 所感  
+- 言語処理100本ノック(2015年版)の準備運動の章をやってみました。  
+
+- 言語処理しにくいR言語でもできなくはないですが、少々癖がある書き方になってしまいがちです(他の言語と同じようにfor文を書けばいいかもしませんが)。  
+
+- 01や04のように、文字列を添字で絞り込むところをパイプ処理でこなせる方法が思いつかなかった（data.frame化してからdplyr::filterで絞り込んで、文字列に戻すのは冗長すぎてやめました）。
+
+- 文字列単体で文を表現されている場合(半角スペースで区切られた長い文字列。要素が1)と、文字列ベクトルで文を表現されている場合（単語毎に区切られたベクトル。要素が1ではない）が同じ"character"クラスだけど、処理が変わるところがあるので面倒（05ではベクトルにしてから処理。embed()は要素が1の文の文字列ではうまくいかない）。  
+-- 上記の変換は「stringi::stri_flatten()」が便利そう？
+
+- まだ準備運動なので、これからが大変な気がしないでも。
+
+- {stringr}と{stringi}について、もう少し調べる必要があると実感しました。
+
+---
+
+---
+
+# 実行環境
+```{r footer}
+library(devtools)
+devtools::session_info()
+```
