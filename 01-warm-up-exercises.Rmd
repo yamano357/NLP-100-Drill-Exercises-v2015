@@ -8,6 +8,10 @@ output:
     toc: true
     toc_depth: 2
     number_sections: false
+    pandoc_args: [
+      "--from", "markdown+autolink_bare_uris+tex_math_single_backslash-implicit_figures"
+    ]
+    
 ---
 
 ---
