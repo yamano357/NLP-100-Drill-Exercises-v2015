@@ -1,0 +1,528 @@
+---
+title: "言語処理100本ノック 第2章:UNIXコマンドの基礎"
+author: '@yamano357'
+date: "2015年6月11日"
+output:
+  html_document:
+    theme: readable
+    toc: true
+    toc_depth: 2
+    number_sections: false
+    pandoc_args: [
+      "--from", "markdown+autolink_bare_uris+tex_math_single_backslash-implicit_figures"
+    ]
+    
+---
+
+---
+
+---
+
+前回までのrPubsページ  
+- [第1章:準備運動](http://rpubs.com/yamano357/84965)  
+
+前回引き続き、言語処理100本ノック（2015年版）を解きます。  
+
+（下記の『前書き（言語処理100本ノックについて）』は前回と同じです）
+
+---
+
+
+# 概要
+前書き（言語処理100本ノックについて）  
+- 本稿では、東北大学の乾・岡崎研究室で公開されている[言語処理100本ノック（2015年版）](http://www.cl.ecei.tohoku.ac.jp/nlp100/)を、R言語で解いていきます。  
+- [改訂前の言語処理100本ノック](http://www.cl.ecei.tohoku.ac.jp/index.php?NLP%20100%20Drill%20Exercises)も同様に上記研究室のサイトにあります。
+
+- 上記のふたつをご覧いただき、下記に進んでいただけますと幸いです。  
+
+---
+
+前書き（Rに関して）  
+- Rの構文や関数についての説明は一切ありませんので、あらかじめご了承ください。  
+- 本稿では、{base}にある文字列処理ではなく、{stringr}（1.0.0以上）とパイプ処理を極力用いております（{stringi}も処理に応じて活用していきます）。課題によってはパイプ処理でこなすのに向かない状況もありますので、あらかじめご了承ください。  
+- 今回は上記に加え、{readr}を用いてファイル読み込みをしていきます。
+
+---
+
+参考ページ  
+
+- {stringr}と{stringi}  
+　[hadley/stringr](https://github.com/hadley/stringr)  
+　[RPubs - このパッケージがすごい2014: stringr](https://rpubs.com/uri-sy/demo_stringr)  
+　[stringiで輝く☆テキストショリスト](http://qiita.com/kohske/items/85d49da04571e9055c44)  
+　[stringr 1.0.0を使ってみる](http://notchained.hatenablog.com/entry/2015/05/01/011703)
+
+- {readr}  
+　[hadley/readr](https://github.com/hadley/readr)  
+　[readr とは？](http://oku.edu.mie-u.ac.jp/~okumura/stat/readr.html)  
+　[readr 0.0.0.9000を使ってみる](http://notchained.hatenablog.com/entry/2015/03/22/150827)  
+
+---
+
+ご意見やご指摘など  
+- こうした方が良いやこういう便利な関数がある、間違いがあるなど、ご指摘をお待ちしております。  
+- 下記のいずれかでご連絡・ご報告いただけますと励みになります（なお、Gitに慣れていない人です）。  
+　[Twitter](https://twitter.com/yamano357), [GitHub](https://github.com/yamano357/NLP-100-Drill-Exercises-v2015)  
+
+---
+
+---
+
+# Rコード  
+- 以下、ひたすら解いていきます。  
+
+- 各チャンク内の「TASK_UNIX_XXX_COMMAND_XXX」という定数は、確認用UNIXコマンドの文字列です。
+
+## パッケージ読み込み
+```{r read_lib, message = FALSE}
+library(knitr)
+library(readr)
+library(dplyr)
+library(stringr)
+library(stringi)
+knitr::opts_chunk$set(comment = NA)
+
+```
+
+---
+
+## 事前準備
+```{r priprocess, cache = TRUE}
+# 第1章の入力データURL（固定）
+TASK_INPUT_URL <- "http://www.cl.ecei.tohoku.ac.jp/nlp100/data/hightemp.txt"
+
+# 入力データのカラム名（指定）
+TASK_INPUT_COL_NAME <- c("prefecture", "observation", "temperature", "date")
+
+# 問題中で指定する読み込み列数（指定）
+TASK_SELECT_N <- 10
+
+# 複数の課題で必要とされる加工を加えず入力データを読み込んでおく
+TASK_INPUT_DATA <- readr::read_lines(file = TASK_INPUT_URL, n_max = -1)
+
+# 複数の課題で必要とされるファイル名を、UNIXコマンド用に取得しておく
+TASK_FILE_NAME <- basename(TASK_INPUT_URL)
+
+
+# ファイル取得 
+download.file(
+  url = TASK_INPUT_URL, destfile = TASK_FILE_NAME, 
+  method = "wget", quiet = FALSE
+)
+file.exists(file1 = TASK_FILE_NAME)
+
+```
+---
+
+## 10. 行数のカウント
+行数をカウントせよ．確認にはwcコマンドを用いよ．
+```{r nlp100_knock_10}
+
+TASK_UNIX_COMMAND_10 <- c("wc -l")
+
+
+length(x = TASK_INPUT_DATA)
+
+
+# wc -l hightemp.txt
+system(
+  command = stringr::str_c(TASK_UNIX_COMMAND_10, TASK_FILE_NAME, sep = " "),
+  intern = TRUE
+) %>% 
+  stringr::str_trim(side = "left")
+```
+
+---
+
+## 11. タブをスペースに置換
+タブ1文字につきスペース1文字に置換せよ．確認にはsedコマンド，trコマンド，もしくはexpandコマンドを用いよ．
+```{r nlp100_knock_11}
+
+# タブとスペースをエスケープしておく
+TASK_UNIX_COMMAND_11 <- list(
+  TR = c(
+    "tr",
+    shQuote(string = "\t", type = "sh"), shQuote(string = " ", type = "sh"),
+    "<"
+    ),
+  EX = c("expand", "-t", "1")
+)
+
+
+stringr::str_replace_all(
+  string = TASK_INPUT_DATA,
+  pattern = "\t", replacement = " "
+)
+
+
+# tr "\t" " " < hightemp.txt
+system(
+  command = stringr::str_c(c(TASK_UNIX_COMMAND_11$TR, TASK_FILE_NAME), collapse = " "),
+  intern = TRUE
+) 
+
+# expand -t 1 hightemp.txt
+system(
+  command = stringr::str_c(c(TASK_UNIX_COMMAND_11$EX, TASK_FILE_NAME), collapse = " "),
+  intern = TRUE
+) 
+
+# Mac環境だとsedで"\t"が認識されないという症状があるそうで、確認できず
+
+```
+
+---
+
+## 12. 1列目をcol1.txtに，2列目をcol2.txtに保存
+各行の1列目だけを抜き出したものをcol1.txtに，2列目だけを抜き出したものをcol2.txtとしてファイルに保存せよ．確認にはcutコマンドを用いよ．
+```{r nlp100_knock_12}
+
+TASK_UNIX_COMMAND_12 <- c("cut -f")
+# 出力ファイル名と抜き出す列番号を対応させたベクトル
+TASK_SELECT_COL_NUM <- c("col1.txt" = 1, "col2.txt" = 2)
+
+
+# col_types引数でカラム指定したreadr::read_tsv()でも可能（17.の問題にて）
+do.call(
+  what = "cbind", 
+  args = lapply(
+    X = TASK_SELECT_COL_NUM, 
+    FUN = function (i) {
+      select_res <- stringr::str_split_fixed(
+        string = TASK_INPUT_DATA,
+        pattern = "\t",
+        n = i + 1
+      )[, i] %>% 
+        data.frame %>%
+        dplyr::rename_(.dots = setNames(".", TASK_INPUT_COL_NAME[i]))
+      
+      readr::write_delim(
+        x = select_res, 
+        path = names(TASK_SELECT_COL_NUM)[i], 
+        delim = "\n",
+        append = FALSE, col_names = FALSE
+      )
+    
+      return(select_res)
+    }
+  )
+)
+
+
+# cut -f 1 hightemp.txt
+# cut -f 2 hightemp.txt
+sapply(TASK_SELECT_COL_NUM, function (i) {
+  system(
+    command = stringr::str_c(c(TASK_UNIX_COMMAND_12, TASK_SELECT_COL_NUM[i], TASK_FILE_NAME), collapse = " "),
+    intern = TRUE
+  ) 
+})
+
+```
+
+---
+
+## 13. col1.txtとcol2.txtをマージ
+12で作ったcol1.txtとcol2.txtを結合し，元のファイルの1列目と2列目をタブ区切りで並べたテキストファイルを作成せよ．確認にはpasteコマンドを用いよ．
+```{r nlp100_knock_13}
+
+TASK_UNIX_COMMAND_13 <- c("paste", "-d", shQuote(string = "\t", type = "sh"))
+
+TASK_FILE_NAME_13 <- c("col1.txt", "col2.txt")
+TASK_SEP_13 <- c("\t")
+TASK_OUTPUT_FILE_NAME_13 <- "col1col2.txt"
+
+
+sapply(TASK_FILE_NAME_13, read_lines) %>% 
+  apply(MARGIN = 1, FUN = stringr::str_c, collapse = TASK_SEP_13) %>%
+  as.data.frame %>%
+  write_delim(
+    path = TASK_OUTPUT_FILE_NAME_13, delim = "",
+    append = FALSE, col_names = FALSE
+  )
+readr::read_lines(file = TASK_OUTPUT_FILE_NAME_13, n_max = -1)
+
+
+# paste -d "\t" col1.txt col2.txt
+system(
+  command = stringr::str_c(c(TASK_UNIX_COMMAND_13, TASK_FILE_NAME_13), collapse = " "),
+  intern = TRUE
+) 
+
+```
+
+---
+
+## 14. 先頭からN行を出力
+自然数Nをコマンドライン引数などの手段で受け取り，入力のうち先頭のN行だけを表示せよ．確認にはheadコマンドを用いよ．
+```{r nlp100_knock_14}
+
+TASK_UNIX_COMMAND_14 <- c("head", "-n")
+
+# 下記で「10」を手入力するが{knitr}でHTML生成する際にエラーになるので、あらかじめ入力しておいた数値を使用
+# TASK_SELECT_N <- readline(prompt = "INPUT N: ") %>% 
+#  as.integer
+
+
+readr::read_lines(file = TASK_INPUT_URL, n_max = TASK_SELECT_N)
+
+
+# head -n 10 hightemp.txt
+system(
+  command = stringr::str_c(c(TASK_UNIX_COMMAND_14, TASK_SELECT_N, TASK_FILE_NAME), collapse = " "),
+  intern = TRUE
+) 
+
+```
+
+---
+
+## 15. 末尾のN行を出力
+自然数Nをコマンドライン引数などの手段で受け取り，入力のうち末尾のN行だけを表示せよ．確認にはtailコマンドを用いよ．
+```{r nlp100_knock_15}
+
+TASK_UNIX_COMMAND_15 <- c("tail", "-n")
+
+# 下記で「10」を手入力するが{knitr}でHTML生成する際にエラーになるので、あらかじめ入力しておいた数値を使用
+# TASK_SELECT_N <- readline(prompt = "INPUT N: ") %>% 
+#  as.integer
+
+
+# ファイルを全て読み込んでから、末尾のN行を表示
+readr::read_lines(file = TASK_INPUT_URL, n_max = -1) %>% 
+  tail(n = TASK_SELECT_N)
+
+
+# tail -n 10 hightemp.txt
+system(
+  command = stringr::str_c(c(TASK_UNIX_COMMAND_15, TASK_SELECT_N, TASK_FILE_NAME), collapse = " "),
+  intern = TRUE
+) 
+
+```
+
+---
+
+## 16. ファイルをN分割する
+自然数Nをコマンドライン引数などの手段で受け取り，入力のファイルを行単位でN分割せよ．同様の処理をsplitコマンドで実現せよ．
+```{r nlp100_knock_16}
+
+TASK_UNIX_COMMAND_16 <- c("split", "-a", "3", "-l")
+
+# 下記で「10」を手入力するが{knitr}でHTML生成する際にエラーになるので、あらかじめ入力しておいた数値を使用
+# TASK_SELECT_N <- readline(prompt = "INPUT N: ") %>% 
+#  as.integer
+
+
+div_num <- as.integer(length(TASK_INPUT_DATA) / TASK_SELECT_N) + 1
+group_id <- as.integer(seq(from = 0, to = length(TASK_INPUT_DATA) - 1) / TASK_SELECT_N) + 1
+# group_id <- rep(
+#   x = seq(from = 1, to = div_num),
+#   each = TASK_SELECT_N
+# )[seq(from = 1, to = length(TASK_INPUT_DATA))]
+
+readr::read_lines(file = TASK_INPUT_URL, n_max = -1) %>% 
+  data.frame(x = .) %>%
+  dplyr::mutate(
+    group_id = group_id
+  ) %>% 
+  split(x = ., f = .["group_id"]) %>%
+  lapply(
+    function(y) {
+      return(
+        y %>% 
+          dplyr::select(-group_id) %>% 
+          unlist %>%
+          as.character
+      )
+    }
+  )
+
+
+# split -a 3 -l 10 hightemp.txt
+# xaaa, xaab, xaacの3ファイルが作成される
+# 上から順に、それぞれ10行、10行、4行のデータが書き込まれる
+system(
+  command = stringr::str_c(c(TASK_UNIX_COMMAND_16, TASK_SELECT_N, TASK_FILE_NAME), collapse = " "),
+  intern = TRUE
+)
+
+```
+
+---
+
+## 17. １列目の文字列の異なり
+1列目の文字列の種類（異なる文字列の集合）を求めよ．確認にはsort, uniqコマンドを用いよ．
+```{r nlp100_knock_17}
+
+TASK_UNIX_COMMAND_17 <- list(
+  SORT = c("sort"),
+  UNIQ = c("uniq")
+)
+
+COUNT_COL_17 <- list(
+  COL_NUM = 4,
+  SELECT_COL_NUM = 1
+)
+if (length(COUNT_COL_17$SELECT_COL_NUM) > 1) {
+  COUNT_COL_17$SELECT_COL_NUM <- COUNT_COL_17$SELECT_COL_NUM[1]
+}
+
+
+# readr::read_tsvのcol_types引数で、COUNT_COL_17$SELECT_COL_NUMで選択したカラムだけを読み込む
+col_types_17 <- rep("_", length = COUNT_COL_17$COL_NUM)
+col_types_17[COUNT_COL_17$SELECT_COL_NUM] <- "c"
+
+readr::read_tsv(
+  file = TASK_FILE_NAME,
+  col_types = stringr::str_c(string = col_types_17, collapse = ""), col_name = FALSE
+) %>% 
+  unlist %>%
+  unique %>%
+  stringr::str_sort(.)
+
+
+# sort col1.txt | uniq
+system(
+  command = stringr::str_c(
+    stringr::str_c(
+      c(
+        TASK_UNIX_COMMAND_17$SORT,
+        names(which(TASK_SELECT_COL_NUM == COUNT_COL_17$SELECT_COL_NUM))
+      ),
+      collapse = " "
+    ), 
+    TASK_UNIX_COMMAND_17$UNIQ,
+    sep = "|"
+  ),
+  intern = TRUE
+)
+
+```
+
+
+## 18. 各行を3コラム目の数値の降順にソート
+各行を3コラム目の数値の逆順で整列せよ（注意: 各行の内容は変更せずに並び替えよ）．確認にはsortコマンドを用いよ（この問題はコマンドで実行した時の結果と合わなくてもよい）．
+```{r nlp100_knock_18}
+
+TASK_UNIX_COMMAND_18 <- c("sort", "-n", "-t", shQuote(string = "\t", type = "sh"), "-k")
+
+# 17. 同様に選択したカラムだけを読み込む
+SORT_COL_18 <- list(
+  COL_NUM = 4,
+  SELECT_COL_NUM = 3
+)
+if (length(SORT_COL_18$SELECT_COL_NUM) > 1) {
+  SORT_COL_18$SELECT_COL_NUM <- SORT_COL_18$SELECT_COL_NUM[1]
+}
+
+
+col_types_18 <- rep("_", length = SORT_COL_18$COL_NUM)
+col_types_18[SORT_COL_18$SELECT_COL_NUM] <- "c"
+
+TASK_INPUT_DATA[
+  (readr::read_tsv(
+    file = TASK_FILE_NAME,
+    col_types = stringr::str_c(string = col_types_18, collapse = ""), col_names = FALSE
+  ) %>% unlist %>% 
+    as.character %>%
+    stringr::str_order()
+  )
+]
+
+
+# sort -n -t " " -k 3 hightemp.txt
+system(
+  command = stringr::str_c(c(TASK_UNIX_COMMAND_18, SORT_COL_18$SELECT_COL_NUM, TASK_FILE_NAME), collapse = " "),
+  intern = TRUE
+)
+```
+
+---
+
+## 19. 各行の1コラム目の文字列の出現頻度を求め，出現頻度の高い順に並べる
+各行の1列目の文字列の出現頻度を求め，その高い順に並べて表示せよ．確認にはcut, uniq, sortコマンドを用いよ．
+```{r nlp100_knock_19}
+
+TASK_UNIX_COMMAND_19 <- list(
+  CUT = c("cut", "-f", "1"),
+  UNIQ = c("sort | uniq", "-c"),
+  SORT = c("sort", "-r")
+)
+
+GROUP_BY_KEY_COL_NUM_KEY <- c(1)
+if (length(TASK_INPUT_COL_NAME) <= length(GROUP_BY_KEY_COL_NUM_KEY)) {
+  GROUP_BY_KEY_COL_NUM_KEY <- GROUP_BY_KEY_COL_NUM_KEY[seq(from = 1, to = length(TASK_INPUT_COL_NAME))]
+}
+
+
+# 指定したカラムをキーにグルーピング（設定変更に柔軟に対応できるように、non-standard evaluationの方を使う）して頻度を数え、頻度に応じで並び替え
+readr::read_tsv(
+  file = TASK_FILE_NAME,
+  col_types = NULL, col_name = TASK_INPUT_COL_NAME
+) %>% 
+  dplyr::group_by_(.dots = TASK_INPUT_COL_NAME[GROUP_BY_KEY_COL_NUM_KEY]) %>%
+  dplyr::summarize(freq = n()) %>%
+  dplyr::arrange(desc(freq))
+
+
+# cut -f 1 hightemp.txt | sort | uniq -c | sort -r
+system(
+  command = stringr::str_c(
+    stringr::str_c(c(TASK_UNIX_COMMAND_19$CUT, TASK_FILE_NAME), collapse = " "),
+    stringr::str_c(TASK_UNIX_COMMAND_19$UNIQ, collapse = " "),
+    stringr::str_c(TASK_UNIX_COMMAND_19$SORT, collapse = " "),
+    sep = " | "
+  ),
+  intern = TRUE
+)
+
+```
+
+---
+
+---
+
+# 所感  
+- 言語処理100本ノック(2015年版)のUNIXコマンドの基礎の章をやってみました。  
+
+- （16.のファイルをN分割する課題、本稿ではN行ずつ書き込んでいますが、「N個のファイルに書き込む」という課題な気がしないでもないです）  
+
+- 今回の方法はファイルサイズが大きくなると難しいと思われます。その場合は、おとなしく{foreach}({pforeach})と{iterators}を組み合わせましょう。  
+
+- Rでファイルを逆から読み込む良い方法は、ちょっとわからなかったです（一度全部を読み込んでから逆順にするのはスマートではない気がしますが、どうでしょう）。何か案があればアドバイスをいただけると幸いです。  
+
+- {readr}によるファイルの読み込みはオススメ（詳しくは「参考ページ」を）。今後積極的に使っていきたいです。
+
+```{r base_readr}
+# {base}のread.delim()
+# 一度ファイルを少し読み込んで、データフレームの各カラムに対してclass()を適用して型を推定
+# Dateが文字列扱いされ、stringsAsFactors引数をFALSEで指定しないと因子として扱われる
+# colClasses引数をせっせと指定するのはちょっと面倒
+read.delim(
+  file = TASK_INPUT_URL, sep = "\t", header = FALSE,
+  nrow = 10, stringsAsFactors = FALSE
+) %>% 
+  summarise_each(funs(class)) %>%
+  as.character
+
+# readr::read_delim()だとcol_types引数をNULLにすると型を（いい感じに）推定（楽）
+readr::read_delim(
+  file = TASK_INPUT_URL, delim = "\t", 
+  col_types = NULL, col_names = TASK_INPUT_COL_NAME
+) %>% 
+  summarise_each(funs(class)) %>%
+  as.character
+```
+
+- 個人的には、Rで書くことよりもUNIXコマンドで表現する方が難しかったです。  
+
+---
+
+---
+
+# 実行環境
+```{r footer}
+library(devtools)
+devtools::session_info()
+```
