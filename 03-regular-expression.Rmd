@@ -1,0 +1,530 @@
+---
+title: "言語処理100本ノック 第3章:正規表現"
+author: '@yamano357'
+date: "2015年6月19日"
+output:
+  html_document:
+    theme: readable
+    toc: true
+    toc_depth: 2
+    number_sections: false
+    pandoc_args: [
+      "--from", "markdown+autolink_bare_uris+tex_math_single_backslash-implicit_figures"
+    ]
+    
+---
+
+---
+
+---
+
+前回までのrPubsページ  
+- [第1章:準備運動](http://rpubs.com/yamano357/84965)  
+- [第2章:UNIXコマンドの基礎](http://rpubs.com/yamano357/85313)  
+
+前回引き続き、言語処理100本ノック（2015年版）を解きます。  
+
+（下記の『前書き（言語処理100本ノックについて）』は前回とほぼ同じです）
+
+---
+
+
+# 概要
+前書き（言語処理100本ノックについて）  
+- 本稿では、東北大学の乾・岡崎研究室で公開されている[言語処理100本ノック（2015年版）](http://www.cl.ecei.tohoku.ac.jp/nlp100/)を、R言語で解いていきます。  
+- [改訂前の言語処理100本ノック](http://www.cl.ecei.tohoku.ac.jp/index.php?NLP%20100%20Drill%20Exercises)も同様に上記研究室のサイトにあります。
+
+- 上記のふたつをご覧いただき、下記に進んでいただけますと幸いです。  
+
+---
+
+前書き（Rに関して）  
+- Rの構文や関数についての説明は一切ありませんので、あらかじめご了承ください。  
+- 本稿では、{base}にある文字列処理ではなく、{stringr}（1.0.0以上）とパイプ処理、外部ファイルの読み込みは{readr}を極力用いております（{stringi}も処理に応じて活用していきます）。課題によってはパイプ処理でこなすのに向かない状況もありますので、あらかじめご了承ください。  
+
+- 今回は上記に加え、{jsonlite}を用いてJSONをパースし、{xml2}でHTMLをパースしています。 
+
+---
+
+参考ページ  
+
+- {stringr}と{stringi}  
+  [hadley/stringr](https://github.com/hadley/stringr)  
+  [RPubs - このパッケージがすごい2014: stringr](https://rpubs.com/uri-sy/demo_stringr)  
+  [stringiで輝く☆テキストショリスト](http://qiita.com/kohske/items/85d49da04571e9055c44)  
+  [stringr 1.0.0を使ってみる](http://notchained.hatenablog.com/entry/2015/05/01/011703)
+
+- {readr}  
+  [hadley/readr](https://github.com/hadley/readr)  
+  [readr とは？](http://oku.edu.mie-u.ac.jp/~okumura/stat/readr.html)  
+  [readr 0.0.0.9000を使ってみる](http://notchained.hatenablog.com/entry/2015/03/22/150827)  
+
+- {jsonlite}  
+  [jeroenooms/jsonlite](https://github.com/jeroenooms/jsonlite)
+  [Getting started with JSON and jsonlite](http://cran.r-project.org/web/packages/jsonlite/vignettes/json-aaquickstart.html)  
+  [jsonliteで要素ひとつだけのベクトルをうまくtoJSON()する](http://notchained.hatenablog.com/entry/2014/06/01/015958)
+
+- {xml2}  
+  [hadley/xml2](https://github.com/hadley/xml2)  
+  
+
+---
+
+ご意見やご指摘など  
+- こうした方が良いやこういう便利な関数がある、間違いがあるなど、ご指摘をお待ちしております。  
+- 下記のいずれかでご連絡・ご報告いただけますと励みになります（なお、Gitに慣れていない人です）。  
+　[Twitter](https://twitter.com/yamano357), [GitHub](https://github.com/yamano357/NLP-100-Drill-Exercises-v2015)  
+
+---
+
+---
+
+# Rコード  
+- 以下、ひたすら解いていきます。  
+
+## パッケージ読み込み
+```{r read_lib, message = FALSE}
+library(knitr)
+library(readr)
+library(dplyr)
+library(stringr)
+library(stringi)
+library(jsonlite)
+library(xml2)
+knitr::opts_chunk$set(comment = NA)
+
+```
+
+---
+
+## 事前準備
+```{r priprocess, cache = TRUE}
+
+# 引数と出力などの説明は省略
+extractMatch <- function (res) {
+  return(
+    res %>%
+      t %>%
+      as.vector %>%
+      na.omit %>% 
+      as.character
+  )
+}
+
+# 引数と出力などの説明は省略
+replaceByPatternList <- function (
+  target_vec,
+  pattern_list
+) {
+
+  for (i in seq(from = 1, to = length(pattern_list))) {
+    target_vec <- target_vec %>%
+      stringr::str_replace_all(
+        pattern = pattern_list[[i]]$pattern,
+        replacement = pattern_list[[i]]$replacement
+      )
+  }
+  
+  return(target_vec)
+}
+
+
+# 第3章の入力データURL（固定）
+TASK_INPUT_URL <- "http://www.cl.ecei.tohoku.ac.jp/nlp100/data/jawiki-country.json.gz"
+
+# 複数の課題で必要とされるファイル名を、UNIXコマンド用に取得しておく
+TASK_FILE_NAME <- basename(TASK_INPUT_URL)
+
+# 本タスクで使用する記事の絞り込みキーワード
+TASK_SEARCH_QUERY <- "イギリス"
+
+# ファイル取得 
+if (!file.exists(file = TASK_FILE_NAME)) {
+  download.file(
+    url = TASK_INPUT_URL, destfile = TASK_FILE_NAME, 
+    method = "wget", quiet = FALSE
+  )
+}
+
+```
+---
+
+## 20. JSONデータの読み込み
+Wikipedia記事のJSONファイルを読み込み，「イギリス」に関する記事本文を表示せよ．問題21-29では，ここで抽出した記事本文に対して実行せよ．
+```{r nlp100_knock_20}
+
+# readr::read_lines()でfile引数に.gzファイルを与えると、自動的に解凍して読み込める
+# 今回は明示的にcloseさせる
+
+if (file.exists(file = TASK_FILE_NAME)) {
+  input_con <- gzfile(
+    description = TASK_FILE_NAME,
+    open = "rb", encoding = "UTF-8"
+  )
+} else {
+  stop("File not found.") 
+}
+
+search_res <- readr::read_lines(
+  file = input_con, n_max = -1
+  ) %>% 
+  lapply(
+    X = .,
+    FUN = function (json) {
+      parsed_json <- jsonlite::fromJSON(txt = json)
+      if (is.element(parsed_json$title, TASK_SEARCH_QUERY)) {
+        return(parsed_json$text)
+      } else {
+        return(NULL)
+      }
+    }
+  ) %>%
+  unlist %>% 
+  readr::read_lines(
+    file = ., n_max = -1
+  )
+
+close(input_con)
+
+# 長いので出力は省略
+
+```
+
+---
+
+## 21. カテゴリ名を含む行を抽出
+記事中でカテゴリ名を宣言している行を抽出せよ．
+```{r nlp100_knock_21}
+
+CATEGORY_DEF_RE <- "\\[{2}Category:(.*)\\]{2}"
+
+
+search_res %>%
+  stringr::str_subset(pattern = CATEGORY_DEF_RE)
+  
+```
+
+---
+
+## 22. カテゴリ名の抽出
+記事のカテゴリ名を（行単位ではなく名前で）抽出せよ．
+```{r nlp100_knock_22}
+
+CATEGORY_RE <- "\\[{2}Category:(.*)\\|.*?\\]{2}|\\[{2}Category:(.*)\\]{2}"
+
+
+(search_res %>% 
+  stringr::str_match(pattern = CATEGORY_RE)
+)[, -1] %>%
+  extractMatch(.)
+
+```
+
+---
+
+## 23. セクション構造
+記事中に含まれるセクション名とそのレベル（例えば"== セクション名 =="なら1）を表示せよ．
+```{r nlp100_knock_23}
+
+SECTION_RE <- "^\\=\\={1,}(.*?)\\=(\\={1,})"
+
+
+(search_res %>% 
+  stringr::str_match(pattern = SECTION_RE)
+)[, -1] %>% 
+  na.omit %>% 
+  data.frame(
+    section = .[, 1], level = stringr::str_length(.[, 2])
+  ) %>%
+  dplyr::select(section, level) %>%
+  dplyr::arrange(desc(level))
+
+```
+
+---
+
+## 24. ファイル参照の抽出
+記事から参照されているメディアファイルをすべて抜き出せ．
+```{r nlp100_knock_24}
+
+MEDIA_RE <- "File:(.*?)\\||ファイル:(.*?)\\|"
+
+
+(search_res %>%
+   stringr::str_match(pattern = MEDIA_RE)
+)[, -1] %>% 
+  extractMatch(.)
+
+```
+
+---
+
+## 25. テンプレートの抽出
+記事中に含まれる「基礎情報」テンプレートのフィールド名と値を抽出し，辞書オブジェクトとして格納せよ
+```{r nlp100_knock_25}
+
+# {{ }}でテンプレートを定義
+# |X = Y
+# X = フィールド名, Y = 値
+
+BASIC_INFO_RE <- list(
+  START = "\\{{2}基礎情報\\s*(.*?)",
+  TEMPLATE = "^\\|(.*?)\\s*\\=\\s*(.*)",
+  PAREN_START = "\\{{2}", PAREN_END = "\\}{2}"
+)
+BR_RE <- "\\<br\\/\\>"
+
+
+# 基礎情報の開始位置
+basic_info_start_idx <- (search_res %>%
+  stringr::str_detect(pattern = BASIC_INFO_RE$START) %>%
+  which.max
+) + 1
+
+# {{ }}の範囲（入れ子あり）
+paren_range_idx <- (
+  (
+    (search_res %>% 
+       stringr::str_count(pattern = BASIC_INFO_RE$PAREN_START) %>%
+       cumsum
+    ) - 
+    (search_res %>%
+       stringr::str_count(pattern = BASIC_INFO_RE$PAREN_END) %>% 
+       cumsum
+     )
+  ) > 0
+) %>% 
+  which
+
+
+basic_info_df <- (
+  search_res %>%
+    data.frame %>% 
+    dplyr::slice(
+      seq(
+        from = basic_info_start_idx,
+        to = which.min(
+          is.element(
+            seq(from = 1, to = length(search_res)),
+            unique(c(1, paren_range_idx))
+          )
+        ) - 1
+      )
+    ) %>%
+    unlist %>%
+    stringr::str_c(collapse = "\\n") %>%
+    stringr::str_replace_all(
+      pattern = stringr::str_c(BR_RE, "\\\\n", sep = ""), replacement = BR_RE
+    ) %>% 
+    stringr::str_split(pattern = "\\\\n") %>%
+    unlist %>%
+    stringr::str_match(pattern = BASIC_INFO_RE$TEMPLATE)
+  )[, -1] %>%
+  data.frame(field = .[, 1], value= .[, 2]) %>%
+  dplyr::select(field, value)
+
+
+basic_info <- as.character(basic_info_df$value)
+names(basic_info) <- basic_info_df$field
+basic_info_df
+
+```
+
+---
+
+## 26. 強調マークアップの除去
+25の処理時に，テンプレートの値からMediaWikiの強調マークアップ（弱い強調，強調，強い強調のすべて）を除去してテキストに変換せよ（参考: [マークアップ早見表](http://ja.wikipedia.org/wiki/Help:早見表)）
+```{r nlp100_knock_26}
+
+# 強調マークアップ
+# ''弱い強調''
+# '''強調'''
+# '''''強い強調'''''
+EMPHASIS_RE <- "\\'{2,5}"
+
+
+basic_info_26 <- basic_info %>%
+  stringr::str_replace_all(
+    pattern = EMPHASIS_RE, replacement = ""    
+  )
+names(basic_info_26) <- names(basic_info)
+
+# 出力は省略(28. でまとめて表示)
+
+```
+
+---
+
+## 27. 内部リンクの除去
+26の処理に加えて，テンプレートの値からMediaWikiの内部リンクマークアップを除去し，テキストに変換せよ（参考: マークアップ早見表）．
+```{r nlp100_knock_27}
+
+# 内部リンクマークアップ
+# [[記事名#節名|表示文字]]
+# [[記事名|表示文字]]
+# [[記事名]]
+INTERNAL_LINK_RE <- list( 
+  list(
+    pattern = "\\[{2}(.*?)\\#.*?\\|.*?\\]{2}",
+    replacement = "\\[\\[\\1\\]\\]"
+  ),
+  list(
+    pattern = "\\[{2}(.*?)\\|.*?\\]{2}",
+    replacement = "\\[\\[\\1\\]\\]"
+  ),
+  list(
+    pattern = "\\[{2}(.*?)\\]{2}",
+    replacement = "\\1"
+  )
+)
+
+
+# 「上記の内部リンクマークアップ」を上から順に適用していく
+basic_info_27 <- replaceByPatternList(
+  target_vec = basic_info_26,
+  pattern_list = INTERNAL_LINK_RE
+)
+names(basic_info_27) <- names(basic_info)
+
+# 出力は省略(28. でまとめて表示)
+
+```
+
+
+## 28. MediaWikiマークアップの除去
+27の処理に加えて，テンプレートの値からMediaWikiマークアップを可能な限り除去し，国の基本情報を整形せよ．
+```{r nlp100_knock_28}
+
+# replaceByPatternListの定義にて、引数pattern_listの要素の名前属性を小文字にしているので小文字に統一
+REPLACE_RE <- list(
+  list(
+    pattern = "\\{{2}.*?\\|.*?\\|(.*)\\}{2}",
+    replacement = "\\{\\{\\1\\}\\}"
+  )
+)
+
+PRE_DELETE_RE <- list(
+  REF_TAG = "\\<ref\\>.*?\\<\\/ref\\>"
+)
+DELETE_RE <- list(
+  REFERENCES_TAG = "\\<references \\/\\>",
+  BR_TAG = "\\<br\\s*\\/\\>",
+  NBSP = "\\&nbsp;",
+  REF_LINK = "\\<ref\\s*?name\\=.*?\\>.*?\\[http.*?\\].*?\\<\\/ref\\>",
+  REF_NAME = "\\<ref\\s*?name\\=.*?\\s*?\\/\\>",
+  FILE_LINK = "File:.*?|ファイル:.*?",
+  PAREN = "\\{{2}|\\}{2}"
+)
+
+
+basic_info_28 <- replaceByPatternList(
+  target_vec = basic_info_27,
+  pattern_list = REPLACE_RE
+) %>%
+  replaceByPatternList(
+    target_vec = .,
+    pattern_list = lapply(
+      X = list(PRE_DELETE_RE, DELETE_RE), 
+      FUN = function (pattern) {
+        return (
+          list(
+            pattern = stringr::str_c(unlist(pattern), collapse = "|"),
+            replacement = ""
+          )
+        )
+      }
+    )
+  )
+names(basic_info_28) <- names(basic_info)
+basic_info_28
+
+```
+
+---
+
+## 29. 国旗画像のURLを取得する
+テンプレートの内容を利用し，国旗画像のURLを取得せよ．（ヒント: [MediaWiki API](http://www.mediawiki.org/wiki/API:Main_page/ja)の[imageinfo](http://www.mediawiki.org/wiki/API:Properties/ja#imageinfo_.2F_ii)を呼び出して，ファイル参照をURLに変換すればよい）
+```{r nlp100_knock_29}
+
+SEARCH_FIELD_WORD <- "国旗画像"
+WIKI_URL <- list(
+  BASE = "https://ja.wikipedia.org/wiki/",
+  API = "https://ja.wikipedia.org/w/api.php"
+)
+
+# 名前属性をAPIのパラメータ名に使用するので小文字表記
+API_PARAM <- list(
+  action = "query",
+  prop = "imageinfo",
+  format = "json",
+  titles = stringr::str_c("Image", xml2::url_escape(x = as.character(basic_info_28[SEARCH_FIELD_WORD])), sep = ":")
+)
+
+HTML_PARAM <- list(
+  XPATH = ".//a[@href][@class='internal']",
+  TARGET = "href"
+)
+
+
+api_res <- jsonlite::fromJSON(
+  txt = stringr::str_c(
+    WIKI_URL$API,
+    sapply(seq(from = 1, to = length(API_PARAM)), function (param_i) {
+      return (
+        stringr::str_c(names(API_PARAM)[param_i], API_PARAM[[param_i]], sep = "=")
+      )
+    }) %>% 
+      stringr::str_c(collapse = "&"),
+    sep = "?"
+  )
+)
+
+# 画像のURLが取得できたので、ついでに元データを取得してみる
+image_url <- xml2::read_html(
+  x = stringr::str_c(
+    WIKI_URL$BASE, as.character(api_res$query$normalized["to"]), 
+    sep = ""
+  ),
+  encoding = "UTF-8"
+) %>%
+  xml2::xml_find_all(xpath = HTML_PARAM$XPATH, ns = xml_ns(.)) %>% 
+  xml2::xml_attr(attr = HTML_PARAM$TARGET)
+
+# 出力ファイルは"plot.svg"で固定（プロット用）
+download.file(
+  url = stringr::str_c("https", image_url, sep = ":"), destfile = "plot.svg", 
+  method = "wget", quiet = FALSE
+)
+
+```
+![alt text](plot.svg)
+
+---
+
+---
+
+# 所感  
+- 言語処理100本ノック(2015年版)の「正規表現」の章をやってみました（「イギリス」以外の国名（エジプトやオーストラリアなど）でも試しましたが、適用可能かと思われます）。  
+
+- Rで正規表現を扱うのは難しいのではないかと思いましたが、意外とできなくはないのかなという感想です（この先に深い闇が潜んでいそうですが）。  
+
+- 途中の処理でデータフレームを作るときにタグ名を指定していますが、`dplyr::data_frame`やNSE版の各種関数でこなれた風に書けないものか、もう少し調べていきたいです（2列のデータフレームから、片方のカラムを名前属性に、もう片方のカラムを要素に持つベクトルを手軽に作成できると 25.の課題で嬉しい）。  
+  [Data frames](http://cran.r-project.org/web/packages/dplyr/vignettes/data_frames.html), [Non-standard evaluation](http://cran.r-project.org/web/packages/dplyr/vignettes/nse.html)  
+
+- Webスクレイピングするパッケージには{rvest}があり、HTMLを読み込む`html`という関数がありますが、下記のコミットにてこちらは非推奨になったようです。代わりにlibxml2ベースの{xml2}にある`read_html`を使って欲しいとのことで、今回はこちらを使用しました（{rvest}の`html`でも内部では`read_html`が呼ばれるように変更されました。ただし、これは0.4において削除するらしいです）  
+  [Use xml2 instead of XML.](https://github.com/hadley/rvest/commit/8cbc30e338ce805472946dcf084417e8020ddbb5)
+
+- JSONを扱うパッケージには{RJSONIO}がありましたが、{shiny}で{jsonlite}が使われるようになり、今後も{jsonlite}を使う機会が増えてきそうと考え、こちらを使っています。  
+  [Shiny 0.12: Interactive Plots with ggplot2](http://blog.rstudio.org/2015/06/16/shiny-0-12-interactive-plots-with-ggplot2/)
+
+- 正規表現は考えるのがとても難しいです。  
+
+---
+
+---
+
+# 実行環境
+```{r footer}
+library(devtools)
+devtools::session_info()
+```
