@@ -1,0 +1,612 @@
+---
+title: "言語処理100本ノック 第4章:形態素解析"
+author: '@yamano357'
+date: "2015年6月27日"
+output:
+  html_document:
+    theme: readable
+    toc: true
+    toc_depth: 2
+    number_sections: false
+    fig_width: 8
+    pandoc_args: [
+      "--from", "markdown+autolink_bare_uris+tex_math_single_backslash-implicit_figures"
+    ]
+    
+---
+
+---
+
+---
+
+前回までのrPubsページ  
+- [第1章:準備運動](http://rpubs.com/yamano357/84965)  
+- [第2章:UNIXコマンドの基礎](http://rpubs.com/yamano357/85313)  
+- [第3章:正規表現](http://rpubs.com/yamano357/86911)  
+
+前回引き続き、言語処理100本ノック（2015年版）を解きます。  
+
+（下記の『前書き（言語処理100本ノックについて）』は前回と同じです）
+
+---
+
+
+# 概要
+前書き（言語処理100本ノックについて）  
+- 本稿では、東北大学の乾・岡崎研究室で公開されている[言語処理100本ノック（2015年版）](http://www.cl.ecei.tohoku.ac.jp/nlp100/)を、R言語で解いていきます。  
+- [改訂前の言語処理100本ノック](http://www.cl.ecei.tohoku.ac.jp/index.php?NLP%20100%20Drill%20Exercises)も同様に上記研究室のサイトにあります。
+
+- 上記のふたつをご覧いただき、下記に進んでいただけますと幸いです。  
+
+---
+
+前書き（Rに関して）  
+- Rの構文や関数についての説明は一切ありませんので、あらかじめご了承ください。  
+- 本稿では、{base}にある文字列処理ではなく、{stringr}（1.0.0以上）とパイプ処理を極力用いております（{stringi}や{readr}によるファイル処理も応じて活用していきます）。課題によってはパイプ処理でこなすのに向かない状況もありますので、あらかじめご了承ください。  
+- 今回は上記に加え、{Rcpp}を用いてRスクリプト上でMeCabへの入出力を行っています。  
+
+前書き（その他）  
+- 本稿はMeCabのバージョン0.996にて実施しております。  
+
+---
+
+参考ページ  
+
+- {stringr}と{stringi}  
+　[hadley/stringr](https://github.com/hadley/stringr)  
+　[RPubs - このパッケージがすごい2014: stringr](https://rpubs.com/uri-sy/demo_stringr)  
+　[stringiで輝く☆テキストショリスト](http://qiita.com/kohske/items/85d49da04571e9055c44)  
+　[stringr 1.0.0を使ってみる](http://notchained.hatenablog.com/entry/2015/05/01/011703)
+
+- {readr}  
+　[hadley/readr](https://github.com/hadley/readr)  
+　[readr とは？](http://oku.edu.mie-u.ac.jp/~okumura/stat/readr.html)  
+　[readr 0.0.0.9000を使ってみる](http://notchained.hatenablog.com/entry/2015/03/22/150827)  
+
+- {Rcpp}  
+  [Rcpp for Seamless R and C++ Integration](http://www.rcpp.org)  
+  [Rcpp: Seamless R and C++ Integration(vignettes)](http://cran.rstudio.com/web/packages/Rcpp/vignettes/Rcpp-introduction.pdf)  
+  [High performance functions with Rcpp](http://adv-r.had.co.nz/Rcpp.html)  
+  [Rcpp 入門](https://sites.google.com/site/rcppintroduction/)  
+
+- MeCab  
+  [MeCab: Yet Another Part-of-Speech and Morphological Analyzer](http://taku910.github.io/mecab/)  
+  [MeCabをC++から使ってみる](http://www.mwsoft.jp/programming/nlp/mecab_cpp.html)  
+  [MeCabのC++ライブラリを使ってみた（C++11のマルチスレッドに触ってみた）](http://sucrose.hatenablog.com/entry/2013/02/06/201930)  
+  [プログラミング言語から MeCab を呼ぶ際に使用する](https://github.com/neologd/mecab-ipadic-neologd/wiki/ProgrammingLanguage.ja)  
+  [MeCabのメモリ管理はどうなっているのか](http://takkkun.hatenablog.com/entry/2013/04/21/MeCabのメモリ管理はどうなっているのか)  
+  [最近のMeCabの使い方](http://d.hatena.ne.jp/takkkun/20120516/1337175782)  
+  
+---
+
+ご意見やご指摘など  
+- こうした方が良いやこういう便利な関数がある、間違いがあるなど、ご指摘をお待ちしております。  
+- 下記のいずれかでご連絡・ご報告いただけますと励みになります（なお、Gitに慣れていない人です）。  
+　[Twitter](https://twitter.com/yamano357), [GitHub](https://github.com/yamano357/NLP-100-Drill-Exercises-v2015)  
+
+---
+
+---
+
+# Rコード  
+- 以下、ひたすら解いていきます。  
+
+## パッケージ読み込み
+```{r read_lib, message = FALSE}
+SET_LOAD_LIB <- c("knitr", "readr", "dplyr", "stringr", "stringi", "lazyeval", "Rcpp", "ggvis")
+sapply(X = SET_LOAD_LIB, FUN = library, character.only = TRUE, logical.return = TRUE)
+knitr::opts_chunk$set(comment = NA)
+```
+
+---
+
+## 事前準備
+- MeCabのインストールは各自よろしくお願いいたします。  
+- Macの方はHomebrewまたはMacPortsで導入可能です。  
+```{r priprocess, cache = TRUE}
+
+# MeCabのC++ APIのRcppコード
+# MeCabタガー生成の索性レベルは2
+# 表層文字列と素性のみを形態素解析結果として受け取る
+# http://taku910.github.io/mecab/bindings.html
+rcpp_src <- '
+List executeMecab(SEXP str) {
+  using namespace Rcpp;
+  using namespace MeCab;
+
+  std::string input = Rcpp::as<std::string>(str);
+
+  std::vector<std::string> surface, feature;
+
+  MeCab::Tagger *tagger = MeCab::createTagger("-l 2");
+  const MeCab::Node* node = tagger->parseToNode(input.c_str());
+
+  for (; node; node = node->next) {
+      if (node->stat != MECAB_BOS_NODE) {
+        surface.push_back(std::string(node->surface, node->length));
+        feature.push_back(std::string(node->feature));
+      }
+  }  
+  delete tagger;
+
+  return Rcpp::wrap(
+    Rcpp::List::create(
+      Rcpp::Named("surface") = surface,
+      Rcpp::Named("feature") = feature
+    )
+  );
+}
+'
+
+Sys.setenv("PKG_LIBS" = "-lmecab")
+# Sys.getenv("PKG_LIBS")
+executeMecab <- Rcpp::cppFunction(
+  code = rcpp_src,
+  includes = c("#include <mecab.h>")
+)
+
+# MeCabの出力を整形
+runMeCab <- function (str){
+  mecab_res <- executeMecab(str = str)
+  return(
+    dplyr::data_frame(
+      surface = as.character(mecab_res$surface), 
+      feature = as.character(mecab_res$feature)
+    )
+  )
+}
+
+# パイプ処理の結果を文字列に変換する関数
+# 同じことを何度かしたので共通化
+convertToChar <- function (tgt, ...) {
+  if (any(is.element(class(tgt), c("list", "data.frame", "tbl_df")))) {
+    return(
+      tgt %>%
+        unlist %>%
+        as.character
+    )
+  } else {
+   return(as.character(tgt)) 
+  }
+}
+
+
+# MeCabの文末文字列
+MECAB_EOS = "BOS/EOS"
+
+# 第4章の入力データURL（固定）
+TASK_INPUT_URL <- "http://www.cl.ecei.tohoku.ac.jp/nlp100/data/neko.txt"
+
+# 複数の課題で必要とされるファイル名
+TASK_FILE_NAME <- "neko.txt.mecab"
+
+
+# ファイル取得して各行毎にMeCabで形態素解析
+download.file(
+  url = TASK_INPUT_URL, destfile = basename(TASK_INPUT_URL), 
+  method = "wget", quiet = FALSE
+)
+if (file.exists(file =  basename(TASK_INPUT_URL))) {
+  readr::read_lines(
+    file = basename(TASK_INPUT_URL), n_max = -1
+  ) %>%
+    dplyr::data_frame(str = .) %>%
+    dplyr::rowwise(.) %>% 
+    dplyr::do(., runMeCab(str = .$str)) %>%
+    readr::write_tsv(
+      x = ., path = TASK_FILE_NAME, 
+      col_names = TRUE, append = FALSE
+    )
+} else{
+  stop("File not found.") 
+}
+
+```
+---
+
+## 30. 形態素解析結果の読み込み
+形態素解析結果（neko.txt.mecab）を読み込むプログラムを実装せよ．ただし，各形態素は表層形（surface），基本形（base），品詞（pos），品詞細分類1（pos1）をキーとするマッピング型に格納し，1文を形態素（マッピング型）のリストとして表現せよ．第4章の残りの問題では，ここで作ったプログラムを活用せよ．
+```{r nlp100_knock_30}
+
+# TARGET_COL_NAMEのカラムをSEPの文字列で区切り
+# SELECT_ELの要素のカラムを抽出して、SELECT_ELの名前属性をカラム名に設定
+spllitExtract <- function (
+  target,
+  EXTRACT_EL
+){
+  return(
+    data.frame(
+      target %>% 
+        dplyr::select_(.dots = lazyeval::interp(~-matches(x), x = EXTRACT_EL$TARGET_COL_NAME)),
+      stringr::str_split_fixed(
+        string = target %>% 
+          dplyr::select_(.dots = EXTRACT_EL$TARGET_COL_NAME) %>% 
+          convertToChar(tgt = .$feature),
+        pattern = EXTRACT_EL$SEP, n = EXTRACT_EL$MAX_COL_NUM
+      ) %>%
+        as.data.frame %>%
+        dplyr::select(num_range("V", EXTRACT_EL$SELECT_EL, width = 1)) %>%
+        dplyr::rename_(
+          .dots = setNames(
+            object = stringr::str_c("V", EXTRACT_EL$SELECT_EL), 
+            nm = names(EXTRACT_EL$SELECT_EL)
+          )
+        )
+    )
+  )
+}
+
+SET_EXTRACT_EL <- list(
+  TARGET_COL_NAME = "feature",
+  SEP = ",",
+  MAX_COL_NUM = 9,
+  SELECT_EL = c(pos = 1, pos2 = 2, base = 7)
+)
+
+
+# 一行一形態素
+# sid = 文番号（EOSでカウントアップしているので、改行のみの行でもカウントアップされる）
+# 出力は「表層形（surface）, 基本形（base）, 品詞（pos）, 品詞細分類1（pos1）」をカラムの名前属性に持つデータフレーム（表示を省略するtblに変換している）
+mecab_res <- readr::read_tsv(
+  file = TASK_FILE_NAME, n_max = -1,
+  col_names = TRUE
+) %>% dplyr::mutate(
+  sid = cumsum(stringr::str_detect(string = feature, pattern = MECAB_EOS))
+) %>%
+  dplyr::filter(!stringr::str_detect(string = feature, pattern = MECAB_EOS)) %>%
+  do(.,
+     spllitExtract(
+       target = ., EXTRACT_EL = SET_EXTRACT_EL
+     )
+  ) %>% 
+  as.tbl %>%
+  print
+
+```
+
+---
+
+## 31. 動詞
+動詞の表層形をすべて抽出せよ．
+```{r nlp100_knock_31}
+
+VERB_FILTER <- lazyeval::interp(~ fun(pos, "動詞"), fun = as.name("=="))
+
+
+mecab_res %>% 
+  dplyr::filter_(.dots = VERB_FILTER) %>%
+  convertToChar(tgt = .$surface) %>%
+  dplyr::data_frame()
+
+```
+
+---
+
+## 32. 動詞の原形
+動詞の原形をすべて抽出せよ．
+```{r nlp100_knock_32}
+
+mecab_res %>% 
+  dplyr::filter_(.dots = VERB_FILTER) %>%
+  convertToChar(tgt = .$base) %>%
+  unique %>%
+  dplyr::data_frame()
+
+```
+
+---
+
+## 13. サ変名詞
+サ変接続の名詞をすべて抽出せよ．
+```{r nlp100_knock_33}
+
+# IPA POSベースのサ変名詞は「NOUN-VERBAL」
+# http://osdn.jp/projects/ipadic/docs/postag.txt/ja/1/postag.txt
+# https://rekken.g.hatena.ne.jp/murawaki/20100129/p1
+SAHEN_NOUN_FILTER <- lazyeval::interp(
+  ~ fun(pos, "名詞") & fun(pos2, "サ変接続"), 
+  fun = as.name("==")
+)
+
+
+mecab_res %>% 
+  dplyr::filter_(.dots = SAHEN_NOUN_FILTER) %>%
+  convertToChar(tgt = .$base) %>%
+  unique %>% 
+  dplyr::data_frame()
+
+```
+
+---
+
+## 34. 「AのB」
+2つの名詞が「の」で連結されている名詞句を抽出せよ．
+```{r nlp100_knock_34}
+
+# 条件(slice_idx + x)を満たす行を抽出して
+# 条件(COND_PARAM$MUTATE_*)を満たすかどうかの論理値を列に追加して
+# 条件(COND_PARAM$SELECT_*)を満たす列を名前をつけて抽出
+extaractInsertIn <- function (
+  target, slice_idx,
+  COND_PARAM
+) {
+  return(
+    target %>% 
+      dplyr::slice(slice_idx + COND_PARAM$SLICE_INDEX_ADD) %>%
+      dplyr::mutate_(.dots = setNames(
+        object = list(COND_PARAM$MUTATE_EL$ACT),
+        nm = COND_PARAM$MUTATE_EL$NAME_EL
+      )) %>%
+      dplyr::select_(
+        .dots = setNames(
+          object = COND_PARAM$SELECT_COL_NAME$SELECT_EL,
+          nm = COND_PARAM$SELECT_COL_NAME$NAME_EL
+        )
+      )
+    )
+}
+
+
+SET_SENTENCE_NUM_NAME <- "snum"
+
+SET_FILTER <- list(
+  AND = lazyeval::interp(
+    ~ fun(base, "の") & fun(pos, "助詞") & fun(pos2, "連体化"), 
+    fun = as.name("==")
+  ),
+  NOUN = lazyeval::interp(~ fun(pos, "名詞"), fun = as.name("=="))
+)
+
+SET_EXTRACT_PREV_NOUN <- list(
+  SLICE_INDEX_ADD = -1,
+  MUTATE_EL = list(
+    ACT = SET_FILTER$NOUN,
+    NAME_EL = "is_prev_noun"
+  ),
+  SELECT_COL_NAME = list(
+    SELECT_EL = list("surface", "is_prev_noun"),
+    NAME_EL = list("prev_surface", "is_prev_noun")
+  )
+)
+SET_EXTRACT_NEXT_NOUN <- list(
+  SLICE_INDEX_ADD = +1,
+  MUTATE_EL = list(
+    ACT = SET_FILTER$NOUN,
+    NAME_EL = "is_next_noun"
+  ),
+  SELECT_COL_NAME = list(
+    SELECT_EL = list("surface", "is_next_noun"),
+    NAME_EL = list("next_surface", "is_next_noun")
+  )
+)
+
+SET_TO_CHAR_JOIN <- list(
+  FILTER_COND = ~ (is_prev_noun & is_next_noun),
+  MUTATE_EL = list(
+    ACT = list(~stringr::str_c(c(prev_surface, surface, next_surface), collapse = "")),
+    NAME_EL = "noun_and_noun"
+  ),
+  SELECT_EL = c("snum", "sid", "noun_and_noun")
+)
+
+
+# 設定した条件（「SET_FILTER」）を満たす行の番号を用いて、
+# その前後の形態素解析結果が条件（「SET_EXTRACT_PREV_NOUN/SET_EXTRACT_NEXT_NOUN」）を満たすかどうかを判定し、同時に指定しているカラムを抽出（extaractInsertIn）
+# ジョインする条件（SET_TO_CHAR_JOIN）を満たしていれば連結して出力
+center_idx <- mecab_res %>% 
+  add_rownames(var = SET_SENTENCE_NUM_NAME) %>%
+  dplyr::filter_(.dots = SET_FILTER$AND) %>%
+  convertToChar(tgt = .[SET_SENTENCE_NUM_NAME]) %>%
+  as.integer
+
+dplyr::bind_cols(
+  extaractInsertIn(
+    target = mecab_res, slice_idx = center_idx,
+    COND_PARAM = SET_EXTRACT_PREV_NOUN
+  ), 
+  mecab_res %>%
+    add_rownames(var = SET_SENTENCE_NUM_NAME) %>%
+    dplyr::slice(center_idx),
+  extaractInsertIn(
+    target = mecab_res, slice_idx = center_idx,
+    COND_PARAM = SET_EXTRACT_NEXT_NOUN
+  )
+) %>% 
+  dplyr::filter_(cdots = SET_TO_CHAR_JOIN$FILTER_COND) %>%  
+  dplyr::rowwise() %>%
+  dplyr::mutate_(
+    .dots = setNames(
+      object = SET_TO_CHAR_JOIN$MUTATE_EL$ACT, nm = SET_TO_CHAR_JOIN$MUTATE_EL$NAME_EL
+    )
+  ) %>% 
+  dplyr::select_(.dots = SET_TO_CHAR_JOIN$SELECT_EL)
+
+
+```
+
+---
+
+## 35. 名詞の連接
+名詞の連接（連続して出現する名詞）を最長一致で抽出せよ．
+```{r nlp100_knock_35}
+
+SET_PREPROCESS_CONTINUE <- list(
+  MUTATE_CONTINUE_EL = list(
+    ACT = lazyeval::interp(
+      ~ fun(pos, "名詞") & fun(surface, base), 
+      fun = as.name("==")
+    ),
+    NAME_EL = "is_noun"
+  ),
+  GROUP_BY_KEY = "sid",
+  MUTATE_ADJACENT_EL = list(
+    ACT = list(
+      ~ dplyr::lag(x = as.integer(snum), n = 1),
+      ~ dplyr::lag(x = is_noun, n = 1),
+      ~ dplyr::lead(x = as.integer(snum), n = 1),
+      ~ dplyr::lead(x = is_noun, n = 1)
+    ),
+    NAME_EL = c("prev_snum", "is_prev_noun", "next_snum", "is_next_noun")
+  ),
+  MUTATE_IS_CONTINUE = list(
+    ACT = list(~ 
+      ((is_noun & is_prev_noun) & (as.integer(snum) == prev_snum + 1)) |
+      ((is_noun & is_next_noun) & (as.integer(snum) == next_snum - 1))
+    ),
+    NAME_EL = "is_continue"
+  ),
+  MUTATE_CONTINUE_COUNTER = list(
+    ACT = list(~ cumsum(!is_continue)),
+    NAME_EL = "continue_counter"
+  )
+)
+SET_EXTRACT_CONTINUE <- list(
+  GROUP_BY_KEY = c("sid", "continue_counter"),
+  SUMMARIZE = list(
+    ACT = list(~stringr::str_c(surface, collapse = "")),
+    NAME_EL = "continue_surface"
+  ),
+  SELECT_EL = c("continue_surface")
+)
+
+
+# 文単位(group_by)で、前後(lagとleadを使用)で条件(SET_PREPROCESS_CONTINUE$MUTATE_CONTINUE_*)を満たす単語の有無で判定（あり = TRUE = 1）
+# 有無の判定後に文単位で「!is_continue」の累積和を出して、変動してなければ(「!is_continue」がTRUEだと順々に加算されていく)条件を満たす単語が連接していると判断
+mecab_res %>% 
+  add_rownames(var = SET_SENTENCE_NUM_NAME) %>%
+  dplyr::mutate_(
+    .dots = setNames(
+      object = list(SET_PREPROCESS_CONTINUE$MUTATE_CONTINUE_EL$ACT),
+      nm = SET_PREPROCESS_CONTINUE$MUTATE_CONTINUE_EL$NAME_EL
+    )
+  ) %>%
+  dplyr::group_by_(.dots = SET_PREPROCESS_CONTINUE$GROUP_BY_KEY) %>%
+  dplyr::mutate_(
+    .dots = setNames(
+      object = SET_PREPROCESS_CONTINUE$MUTATE_ADJACENT_EL$ACT,
+      nm = SET_PREPROCESS_CONTINUE$MUTATE_ADJACENT_EL$NAME_EL
+    )
+  ) %>%
+  replace(is.na(.), FALSE) %>%
+  dplyr::mutate_(
+    .dots = setNames(
+      object = SET_PREPROCESS_CONTINUE$MUTATE_IS_CONTINUE$ACT,
+      nm = SET_PREPROCESS_CONTINUE$MUTATE_IS_CONTINUE$NAME_EL
+    )
+  ) %>% 
+  dplyr::mutate_(
+    .dots = setNames(
+      object = SET_PREPROCESS_CONTINUE$MUTATE_CONTINUE_COUNTER$ACT,
+      nm = SET_PREPROCESS_CONTINUE$MUTATE_CONTINUE_COUNTER$NAME_EL
+    )
+  ) %>%
+  dplyr::ungroup() %>%
+  dplyr::filter_(.dots = SET_PREPROCESS_CONTINUE$MUTATE_IS_CONTINUE$NAME_EL) %>%
+  dplyr::group_by_(.dots = SET_EXTRACT_CONTINUE$GROUP_BY_KEY) %>%
+  dplyr::summarize_(
+    .dots = setNames(
+      object = SET_EXTRACT_CONTINUE$SUMMARIZE$ACT,
+      nm = SET_EXTRACT_CONTINUE$SUMMARIZE$NAME_EL
+    )
+  ) %>%
+  dplyr::select_(.dots = SET_EXTRACT_CONTINUE$SELECT_EL)
+
+```
+
+---
+
+## 36. 単語の出現頻度
+文章中に出現する単語とその出現頻度を求め，出現頻度の高い順に並べよ．
+```{r nlp100_knock_36}
+
+base_freq <- mecab_res %>%
+  dplyr::count(x = ., base, sort = TRUE) %>%
+  print
+
+```
+
+---
+
+## 37. 頻度上位10語
+出現頻度が高い10語とその出現頻度をグラフ（例えば棒グラフなど）で表示せよ．
+```{r nlp100_knock_37}
+
+SET_TOP_N <- 10
+
+base_freq %>%
+  dplyr::top_n(x = ., n = SET_TOP_N, wt = n) %>%
+  ggvis::ggvis(x = ~ as.character(base), y = ~ n) %>% 
+  ggvis::layer_bars()
+
+```
+
+## 38. ヒストグラム
+単語の出現頻度のヒストグラム（横軸に出現頻度，縦軸に出現頻度をとる単語の種類数を棒グラフで表したもの）を描け．
+```{r nlp100_knock_38}
+
+# 横軸は「頻度の頻度」
+# table(table(mecab_res$base))
+
+word_hist_seed <- base_freq %>%
+  dplyr::select(n) %>%
+  table %>% 
+  dplyr::data_frame(base_type = ., freq = as.integer(names(.)))
+
+word_hist_seed %>% 
+  dplyr::group_by(freq) %>%
+  ggvis::ggvis(x = ~ freq, y = ~ base_type) %>% 
+  ggvis::layer_bars()
+
+# 同じグラフをlayer_histogramsで書く場合
+# base_freq %>% 
+#   ggvis(x = ~n) %>%
+#   layer_histograms(width = 0.5, boundary = 0)
+
+```
+
+---
+
+## 39. Zipfの法則
+単語の出現頻度順位を横軸，その出現頻度を縦軸として，両対数グラフをプロットせよ．
+```{r nlp100_knock_39}
+
+word_hist_seed %>%
+  dplyr::group_by(freq) %>%
+  ggvis::ggvis(x = ~ log(freq), y = ~ log(base_type)) %>% 
+  ggvis::layer_points()
+
+```
+
+---
+
+---
+
+# 所感  
+- 言語処理100本ノック(2015年版)の「形態素解析」の章をやってみました。  
+
+- 本稿では{Rcpp}でC++のAPIを用いてMeCabによる形態素解析を行いましたが、石田先生が作成した{RMeCab}を使うと手軽にできます。  
+  [RMeCab](https://sites.google.com/site/rmecab/), [RとLinuxと...](http://rmecab.jp/wiki/index.php?FrontPage)  
+
+- 今回の課題ではMeCabを使いましたが、日本語の形態素解析器（形態素解析を行うツール）には他にもJUMANやKyTeaやkuromoji(.jar/.js)などが知られています。  
+  [JUMAN](http://nlp.ist.i.kyoto-u.ac.jp/index.php?JUMAN), [KyTea](http://www.phontron.com/kytea/index-ja.html), [kuromoji](http://www.atilika.com/ja/products/kuromoji.html)  
+  [ブラウザで自然言語処理 - JavaScriptの形態素解析器kuromoji.jsを作った](http://stp-the-wld.blogspot.jp/2015/01/javascriptkuromojijs.html)  
+
+- MeCab以外の形態素解析器の結果を同じようにRで扱いたいので、時間を見つけてやります（kuromojiは{rJava}で.jarファイルを読み込むと、入出力のやりとりが可能なことは確認しました）。  
+
+- 英語の場合は半角スペースによる「分かち書き」がされている（単語同士が半角スペースで区切られている）ので、ステミング（ポーターステミング）または原形化（lemmazation）といった単語の整形のみだけでも、テキストの統計処理がある程度可能です（意味や構文を解析して活用したいなら、品詞タグ付け(POS-tagging)だけでなく踏み込んだテキスト処理も必要になってきます）。
+
+- テキストマイニングや言語処理を行うRパッケージとして{tm}や{NLP}があり、これらは汎用的に使えそうです。他にも{tau}や{SnowballC}などはテキスト処理時に有効な補助的な関数群として活用でき、Apache OpenNLPやStanford CoreNLPといったプロジェクトで作られたライブラリをRで活用するパッケージ（{openNLP}と{StanfordCoreNLP}, {coreNLP}）もありました（これらのパッケージがどれくらい使えるか、未確認・未検証ですので調査します）。  
+  詳しくはCRAN Task Viewを参照してください。  
+  [CRAN Task View: Natural Language Processing](http://cran.r-project.org/web/views/NaturalLanguageProcessing.html)
+
+- 個人的には、形態素解析器をRで実装するという苦行（既存パッケージは使用）にも挑戦したいです。  
+
+---
+
+---
+
+# 実行環境
+```{r footer}
+library(devtools)
+devtools::session_info()
+```
