@@ -1,0 +1,1467 @@
+---
+title: "言語処理100本ノック 第5章:構文解析"
+author: '@yamano357'
+date: "2015年7月10日"
+output:
+  html_document:
+    theme: readable
+    toc: true
+    toc_depth: 2
+    number_sections: false
+    fig_width: 8
+    pandoc_args: [
+      "--from", "markdown+autolink_bare_uris+tex_math_single_backslash-implicit_figures"
+    ]
+    
+---
+
+---
+
+---
+
+前回までのrPubsページ  
+- [第1章:準備運動](http://rpubs.com/yamano357/84965)  
+- [第2章:UNIXコマンドの基礎](http://rpubs.com/yamano357/85313)  
+- [第3章:正規表現](http://rpubs.com/yamano357/86911)  
+- [第4章:形態素解析](http://rpubs.com/yamano357/90200)  
+
+前回引き続き、言語処理100本ノック（2015年版）を解きます。  
+
+（下記の『前書き（言語処理100本ノックについて）』は前回と同じです）
+
+---
+
+
+# 概要
+前書き（言語処理100本ノックについて）  
+- 本稿では、東北大学の乾・岡崎研究室で公開されている[言語処理100本ノック（2015年版）](http://www.cl.ecei.tohoku.ac.jp/nlp100/)を、R言語で解いていきます。  
+- [改訂前の言語処理100本ノック](http://www.cl.ecei.tohoku.ac.jp/index.php?NLP%20100%20Drill%20Exercises)も同様に上記研究室のサイトにあります。
+
+- 上記のふたつをご覧いただき、下記に進んでいただけますと幸いです。  
+
+---
+
+前書き（Rに関して）  
+- Rの構文や関数についての説明は一切ありませんので、あらかじめご了承ください。  
+- 本稿では、{base}にある文字列処理ではなく、{stringr}（1.0.0以上）とパイプ処理を極力用いております（{stringi}や{readr}によるファイル処理も応じて活用していきます）。課題によってはパイプ処理でこなすのに向かない状況もありますので、あらかじめご了承ください。  
+- 今回は上記に加え、{Rcpp}を用いてRスクリプト上でCaboChaへの入出力を行っています。  
+
+前書き（その他）  
+- 本稿はCaboChaのバージョン0.68にて実施しております。  
+
+---
+
+参考ページ  
+
+- {stringr}と{stringi}  
+　[hadley/stringr](https://github.com/hadley/stringr)  
+　[RPubs - このパッケージがすごい2014: stringr](https://rpubs.com/uri-sy/demo_stringr)  
+　[stringiで輝く☆テキストショリスト](http://qiita.com/kohske/items/85d49da04571e9055c44)  
+　[stringr 1.0.0を使ってみる](http://notchained.hatenablog.com/entry/2015/05/01/011703)
+
+- {readr}  
+　[hadley/readr](https://github.com/hadley/readr)  
+　[readr とは？](http://oku.edu.mie-u.ac.jp/~okumura/stat/readr.html)  
+　[readr 0.0.0.9000を使ってみる](http://notchained.hatenablog.com/entry/2015/03/22/150827)  
+
+- {Rcpp}  
+  [Rcpp for Seamless R and C++ Integration](http://www.rcpp.org)  
+  [Rcpp: Seamless R and C++ Integration(vignettes)](http://cran.rstudio.com/web/packages/Rcpp/vignettes/Rcpp-introduction.pdf)  
+  [High performance functions with Rcpp](http://adv-r.had.co.nz/Rcpp.html)  
+  [Rcpp 入門](https://sites.google.com/site/rcppintroduction/)  
+  [Creating a std::shared_ptr object and returning it to the R side (Rcpp)](http://stackoverflow.com/questions/26217102/creating-a-stdshared-ptr-object-and-returning-it-to-the-r-side-rcpp)
+  
+- CaboCha  
+  [CaboCha/南瓜: Yet Another Japanese Dependency Structure Analyzer](http://taku910.github.io/cabocha/)  
+
+- C++11  
+  [C++11 のすすめ](http://imoz.jp/note/cpp11.html)  
+  [range-based for loopsの要素の型について](http://qiita.com/rinse_/items/cdfce8aa6a685a8ebe0c)  
+  [これからC++11を学ぶ君に。生ポとおさらば unique_ptr編](http://qiita.com/YukiMiyatake/items/9c099041eab9ee8b349d)
+
+ご意見やご指摘など  
+- こうした方が良いやこういう便利な関数がある、間違いがあるなど、ご指摘をお待ちしております。  
+- 下記のいずれかでご連絡・ご報告いただけますと励みになります（なお、Gitに慣れていない人です）。  
+　[Twitter](https://twitter.com/yamano357), [GitHub](https://github.com/yamano357/NLP-100-Drill-Exercises-v2015)  
+
+---
+
+---
+
+# Rコード  
+- 以下、ひたすら解いていきます。  
+- UNIXコマンドによる確認は省略します。  
+
+## パッケージ読み込み
+```{r read_lib, message = FALSE}
+SET_LOAD_LIB <- c("knitr", "readr", "dplyr", "stringr", "stringi", "lazyeval", "Rcpp", "BH", "R6", "DiagrammeR", "gtools")
+sapply(X = SET_LOAD_LIB, FUN = library, character.only = TRUE, logical.return = TRUE)
+knitr::opts_chunk$set(comment = NA)
+```
+
+---
+
+## 事前準備
+- MeCabならびにCaboChaのインストールは各自よろしくお願いいたします。  
+- Macの方はHomebrewまたはMacPortsで導入可能です。  
+```{r priprocess, cache = TRUE}
+
+# CaboChaのC++ APIのRcppコード
+# 出力フォーマットはlattice(-f1)
+# IOB2形式で固有表現タグを出力(-n1)
+# http://taku910.github.io/cabocha/
+rcpp_src <- '
+DataFrame executeCabocha(SEXP str) {
+  
+  using namespace Rcpp;
+  using namespace CaboCha;
+
+  std::string input = Rcpp::as<std::string>(str);
+  
+  std::vector<int> link;
+  std::vector<unsigned short int> mnum, chunk_id;
+  std::vector<std::string> surface, feature, ne;
+
+  // CaboChaパーサーを生成して、入力文の係り受け解析結果を受け取る
+  Rcpp::XPtr<const CaboCha::Tree> tree(CaboCha::createParser("-f1 -n1")->parse(input.c_str()));
+  for (auto i : boost::irange(0, int(tree.get()->size()))) {
+//    Rcpp::XPtr<const CaboCha::Token> token(tree.get()->token(i));
+    mnum.push_back(i);
+    if (tree.get()->token(i)->chunk != NULL) {
+      chunk_id.push_back(chunk_id.size() != 0 ? chunk_id.back() + 1: 0);
+      link.push_back(tree.get()->token(i)->chunk->link);
+    } else {
+      chunk_id.push_back(chunk_id.size() != 0 ? chunk_id.back() : 0);
+      link.push_back(link.back());
+    }
+
+    surface.push_back(std::string(tree.get()->token(i)->surface));
+    feature.push_back(std::string(tree.get()->token(i)->feature));
+    ne.push_back(std::string(tree.get()->token(i)->ne ? tree.get()->token(i)->ne : "O"));
+  }
+
+  return Rcpp::DataFrame::create(
+      Rcpp::Named("mnum") = mnum,
+      Rcpp::Named("chunk_id") = chunk_id,
+      Rcpp::Named("link") = link,
+      Rcpp::Named("surface") = surface,
+      Rcpp::Named("feature") = feature,
+      Rcpp::Named("ne") = ne
+  );
+}
+'
+
+Sys.setenv("PKG_LIBS" = "-lmecab -lcabocha")
+Sys.setenv("PKG_CXXFLAGS" = "-O2")
+# Sys.getenv("PKG_LIBS")
+executeCabocha <- Rcpp::cppFunction(
+  code = rcpp_src,
+  includes = c("#include <cabocha.h>", "#include <boost/range/irange.hpp>"),
+  plugins = "cpp11"
+)
+
+
+# CaboChaの出力を整形
+runCaboCha <- function (str){
+  cabocha_res <- executeCabocha(str = as.character(str))
+  return(
+    dplyr::data_frame(
+      mnum = cabocha_res$mnum,
+      chunk_id = cabocha_res$chunk_id,
+      link = cabocha_res$link,
+      surface = as.character(cabocha_res$surface),
+      feature = as.character(cabocha_res$feature),
+      ne = as.character(cabocha_res$ne)
+    )
+  )
+}
+
+# パイプ処理の結果を文字列に変換する関数
+# 同じことを何度かしたので共通化(前回定義した関数を流用)
+convertToChar <- function (tgt, ...) {
+  if (any(is.element(class(tgt), c("list", "data.frame", "tbl_df")))) {
+    return(
+      tgt %>%
+        unlist %>%
+        as.character
+    )
+  } else {
+   return(as.character(tgt)) 
+  }
+}
+
+
+
+# 第5章の入力データURL（固定）
+TASK_INPUT_URL <- "http://www.cl.ecei.tohoku.ac.jp/nlp100/data/neko.txt"
+
+# 複数の課題で必要とされるファイル名
+TASK_FILE_NAME <- "neko.txt.cabocha"
+
+
+# ファイル取得して各行毎にCaboChaで係り受け解析
+download.file(
+  url = TASK_INPUT_URL, destfile = basename(TASK_INPUT_URL), 
+  method = "wget", quiet = FALSE
+)
+if (file.exists(file =  basename(TASK_INPUT_URL))) {
+  readr::read_lines(
+    file = basename(TASK_INPUT_URL), n_max = -1
+  ) %>%
+    na.omit() %>%
+    dplyr::data_frame(str = .) %>%
+    dplyr::rowwise(.) %>% 
+    dplyr::do(., runCaboCha(str = .$str)) %>%
+    readr::write_tsv(
+      x = ., path = TASK_FILE_NAME, 
+      col_names = TRUE, append = FALSE
+    )
+} else{
+  stop("File not found.") 
+}
+```
+---
+
+## 40. 係り受け解析結果の読み込み（形態素）
+形態素を表すクラスMorphを実装せよ．このクラスは表層形（surface），基本形（base），品詞（pos），品詞細分類1（pos1）をメンバ変数に持つこととする．さらに，CaboChaの解析結果（neko.txt.cabocha）を読み込み，各文をMorphオブジェクトのリストとして表現し，3文目の形態素列を表示せよ．
+```{r nlp100_knock_40}
+
+# 4章で定義した関数を再利用
+# TARGET_COL_NAMEのカラムをSEPの文字列で区切り
+# SELECT_ELの要素のカラムを抽出して、SELECT_ELの名前属性をカラム名に設定
+spllitExtract <- function (
+  target,
+  EXTRACT_EL
+){
+  return(
+    data.frame(
+      target %>% 
+        dplyr::select_(.dots = lazyeval::interp(~-matches(x), x = EXTRACT_EL$TARGET_COL_NAME)),
+      stringr::str_split_fixed(
+        string = target %>% 
+          dplyr::select_(.dots = EXTRACT_EL$TARGET_COL_NAME) %>% 
+          convertToChar(tgt = .$feature),
+        pattern = EXTRACT_EL$SEP, n = EXTRACT_EL$MAX_COL_NUM
+      ) %>%
+        as.data.frame %>%
+        dplyr::select(num_range("V", EXTRACT_EL$SELECT_EL, width = 1)) %>%
+        dplyr::rename_(
+          .dots = setNames(
+            object = stringr::str_c("V", EXTRACT_EL$SELECT_EL), 
+            nm = names(EXTRACT_EL$SELECT_EL)
+          )
+        )
+    )
+  )
+}
+
+SET_EXTRACT_EL <- list(
+  TARGET_COL_NAME = "feature",
+  SEP = ",",
+  MAX_COL_NUM = 9,
+  SELECT_EL = c(pos = 1, pos1 = 2, base = 7)
+)
+
+
+# メンバー変数と初期化のみのクラス
+Morph <- R6::R6Class(
+  classname = "Morph",
+  public = list(
+    surface = NA, base = NA,
+    pos = NA,  pos1 = NA,
+    initialize = function(
+      surface = surface, base = base,
+      pos = pos, pos1 = pos1
+    ) {
+      if (!missing(surface)) {
+        self$surface <- surface 
+      }
+      if (!missing(base)) {
+        self$base <- base 
+      }
+      if (!missing(pos)) {
+        self$pos <- pos 
+      }
+      if (!missing(pos1)) {
+        self$pos1 <- pos1
+      }
+    }
+  )
+)
+
+
+# 表示する文番号
+SET_SELECT_LINE_NUM <- 3
+
+
+cabocha_res <- readr::read_tsv(
+  file = TASK_FILE_NAME, n_max = -1,
+  col_names = TRUE
+) %>%
+  dplyr::mutate(
+    sid = cumsum(as.integer(
+      (dplyr::lag(x = mnum, n = 1) %>% 
+         replace(is.na(.), 0) >= mnum
+       )
+    )
+  )) %>%
+  do(., spllitExtract(target = ., EXTRACT_EL = SET_EXTRACT_EL)) %>%
+  as.tbl
+
+morph_obj <- cabocha_res %>% 
+  ungroup %>%
+  dplyr::group_by(sid) %>%
+  dplyr::summarize(
+    morph = list(Morph$new(
+      surface = stringr::str_c(as.character(surface), sep = ""),
+      base = stringr::str_c(as.character(base), sep = ""),
+      pos = stringr::str_c(as.character(pos), sep = ""),
+      pos1 = stringr::str_c(as.character(pos1), sep = "")
+    ))
+  )
+
+
+(
+  morph_obj %>% 
+    dplyr::filter(sid == SET_SELECT_LINE_NUM) %>%
+    dplyr::select(morph) %>%
+    unlist
+)$morph$base
+
+
+```
+
+---
+
+## 41. 係り受け解析結果の読み込み（文節・係り受け）
+40に加えて，文節を表すクラスChunkを実装せよ．このクラスは形態素（Morphオブジェクト）のリスト（morphs），係り先文節インデックス番号（dst），係り元文節インデックス番号のリスト（srcs）をメンバ変数に持つこととする．さらに，入力テキストのCaboChaの解析結果を読み込み，１文をChunkオブジェクトのリストとして表現し，8文目の文節の文字列と係り先を表示せよ．第5章の残りの問題では，ここで作ったプログラムを活用せよ．
+```{r nlp100_knock_41}
+
+# 形態素解析結果から欲しい要素を抽出
+extractMorphsElement <- function (
+  target,
+  extract_el = "surface",
+  is_join = TRUE
+) {
+  morph_str <- NULL
+  if (length(target) == 1) {
+    if (is_join) {
+      morph_str <- stringr::str_c(string = target[[1]][[extract_el]], collapse = "")    
+    } else {
+      morph_str <- target[[1]][[extract_el]]
+    }
+  } else{
+    if (is_join) {
+      morph_str <- sapply(X = target, FUN = "[[", extract_el) %>% 
+        sapply(X = ., FUN = stringr::str_c, collapse = "")
+    } else{
+      morph_str <- sapply(X = target, FUN = "[[", extract_el)
+    }
+  }
+  return(morph_str)
+}
+
+# Morphは継承しない
+Chunk <- R6::R6Class(
+  classname = "Chunk",
+  public = list(
+    member_list = NA,
+    morphs = NA,
+    dst = NA,
+    srcs = NA,
+    initialize = function(
+      morphs = morphs,
+      dst = dst, srcs = srcs
+    ) {
+      if (!missing(morphs)) {
+        self$morphs <- morphs 
+      }
+      if (!missing(dst)) {
+        self$dst <- dst 
+      }
+      if (!missing(srcs)) {
+        self$srcs <- srcs 
+      }
+    }
+  )
+)
+
+# 表示する文番号
+SET_SELECT_LINE_NUM <- 8
+
+chunk_obj <- cabocha_res %>% 
+  dplyr::ungroup() %>%
+  dplyr::group_by(sid, chunk_id) %>%
+  dplyr::summarize(
+    dst = unique(link),
+    morphs = list(Morph$new(
+      surface = stringr::str_c(as.character(surface), sep = ""),
+      base = stringr::str_c(as.character(base), sep = ""),
+      pos = stringr::str_c(as.character(pos), sep = ""),
+      pos1 = stringr::str_c(as.character(pos1), sep = "")
+    ))
+  ) %>%
+  dplyr::ungroup() %>%
+  dplyr::group_by(sid, dst) %>%
+  dplyr::summarize(
+    chunk_num = min(chunk_id),
+    chunk = list(Chunk$new(
+      morphs = unlist(morphs),
+      dst =  stringr::str_c(as.character(unique(dst)), sep = ""),
+      srcs = stringr::str_c(unique(chunk_id), collapse = " ")
+    ))
+  ) %>%
+  dplyr::ungroup() %>%
+  dplyr::arrange(chunk_num) %>%
+  dplyr::group_by(sid) %>%
+  dplyr::summarize(chunk = list(chunk))
+
+# 係り受け先
+(chunk_obj %>%
+    dplyr::filter(sid == SET_SELECT_LINE_NUM) %>%
+    dplyr::select(chunk)
+  )$chunk[[1]] %>%
+    sapply(X = ., FUN = "[[", "dst")
+
+# 文節文字列
+(chunk_obj %>%
+    dplyr::filter(sid == SET_SELECT_LINE_NUM) %>%
+    dplyr::select(chunk)
+  )$chunk[[1]] %>%
+  sapply(X = ., FUN = "[[", "morphs") %>%
+  sapply(X = ., FUN = extractMorphsElement,  extract_el = "surface", is_join = TRUE)
+
+```
+
+---
+
+## 42. 係り元と係り先の文節の表示
+係り元の文節と係り先の文節のテキストをタブ区切り形式ですべて抽出せよ．ただし，句読点などの記号は出力しないようにせよ．
+```{r nlp100_knock_42}
+
+# 引数を受け取って集計させるNSE
+createSummary <- function( 
+  target,
+  FILTER, GROUP_BY_KEY, SUMMARIZE_EL
+){
+  return(
+    target %>%
+      dplyr::filter_(.dots = FILTER) %>%
+      dplyr::group_by_(.dots = GROUP_BY_KEY) %>%
+      dplyr::summarize_(
+        .dots = setNames(
+          object = SUMMARIZE_EL$ACT,
+          nm = SUMMARIZE_EL$NAME_EL
+        )
+      )
+  )
+}
+
+# 文節の原形や表層文字列を、SEP_STRINGで連結
+joinTargetElement <- function (
+  dst_src, src_dst_chunk,
+  JOIN_COL_NAME, SEP_STRING
+) {
+  
+  dst_target <- dplyr::left_join(
+    x = dst_src %>%
+      dplyr::group_by(sid, dst) %>%
+      dplyr::summarize(freq = n()) %>%
+      dplyr::select(-freq),
+    y = src_dst_chunk %>% 
+      dplyr::ungroup() %>%
+      dplyr::select(-dst, dst = src) %>%
+      dplyr::rename_(
+        .dots = setNames(
+          object = JOIN_COL_NAME,
+          nm = stringr::str_c("dst", JOIN_COL_NAME, sep = "_")
+        )
+      ),
+    by = c("sid", "dst")
+  ) %>% 
+    na.omit()
+  
+  return(
+    dplyr::left_join(
+      x = src_dst_chunk,
+      y = dst_target,
+      by = c("sid", "dst")
+    ) %>%
+      na.omit() %>%
+      dplyr::mutate_(
+        .dots = setNames(
+          object = list(lazyeval::interp(
+            ~stringr::str_c(cvar1, cvar2, sep = SEP_STRING),
+            cvar1 = as.name(JOIN_COL_NAME),
+            cvar2 = as.name(stringr::str_c("dst", JOIN_COL_NAME, sep = "_"))
+          )),
+          nm = "src_dst_target"
+        )
+      ) %>%
+      dplyr::select(sid, src, dst, src_dst_target)
+  )
+}
+
+
+SET_FILTER <- list(
+  SIGN = lazyeval::interp(~ fun(pos, "記号"), fun = as.name("!="))
+)
+
+SET_JOIN_COL_NAME_SURFACE <- "surface"
+SET_SEP_STRING <- "\t"
+SET_CREATE_SUMMARY_SURFACE <- list(
+  FILTER = SET_FILTER$SIGN,
+  GROUP_BY_KEY = c("sid", "src"),
+  SUMMARIZE = list(
+    ACT = list(
+      lazyeval::interp(~ unique(link)),
+      lazyeval::interp(
+        ~ stringr::str_c(as.character(el), collapse = sep),
+        el = as.name(SET_JOIN_COL_NAME_SURFACE), sep = ""
+      )
+    ),
+    NAME_EL = c("dst", SET_JOIN_COL_NAME_SURFACE)
+  )
+)
+
+
+dst_src <- do.call("rbind", lapply(unique(chunk_obj$sid), function (each_sid) {
+  return(
+    dplyr::data_frame(
+      sid = each_sid,
+      dst = (
+        chunk_obj %>%
+          dplyr::filter(sid == each_sid) %>%
+          dplyr::select(chunk)
+        )$chunk[[1]] %>%
+        sapply(X = ., FUN = "[[", "dst"),
+      src = (
+        chunk_obj %>%
+          dplyr::filter(sid == each_sid) %>%
+          dplyr::select(chunk)
+        )$chunk[[1]] %>%
+        sapply(X = ., FUN = "[[", "srcs")
+    ) %>%
+      dplyr::mutate(src = stringr::str_split(string = src, pattern = "[[:blank:]]")) %>%
+      tidyr::unnest(src) %>%
+      dplyr::mutate(
+        src = as.numeric(src),
+        dst = as.numeric(dst)
+      )
+  )
+}))
+
+src_dst_surface <- joinTargetElement(
+  dst_src = dst_src, 
+  src_dst_chunk = createSummary(
+    target = cabocha_res %>% 
+      dplyr::ungroup() %>%
+      dplyr::rename(src = chunk_id),
+    FILTER = SET_CREATE_SUMMARY_SURFACE$FILTER,
+    GROUP_BY_KEY = SET_CREATE_SUMMARY_SURFACE$GROUP_BY_KEY,
+    SUMMARIZE_EL = SET_CREATE_SUMMARY_SURFACE$SUMMARIZE
+  ),
+  JOIN_COL_NAME = SET_JOIN_COL_NAME_SURFACE, SEP_STRING = SET_SEP_STRING
+) %>%
+  print
+
+```
+
+---
+
+## 43. 名詞を含む文節が動詞を含む文節に係るものを抽出
+名詞を含む文節が，動詞を含む文節に係るとき，これらをタブ区切り形式で抽出せよ．ただし，句読点などの記号は出力しないようにせよ．
+```{r nlp100_knock_43}
+
+SET_JOIN_COL_NAME_POS <- "pos"
+SET_SEP_STRING <- "\t"
+SET_CREATE_SUMMARY_POS <- list(
+  FILTER = SET_FILTER$SIGN,
+  GROUP_BY_KEY = c("sid", "src"),
+  SUMMARIZE = list(
+    ACT = list(
+      lazyeval::interp(~ unique(link)),
+      lazyeval::interp(
+        ~ stringr::str_c(as.character(el), collapse = sep),
+        el = as.name(SET_JOIN_COL_NAME_POS), sep = " "
+      )
+    ),
+    NAME_EL = c("dst", SET_JOIN_COL_NAME_POS)
+  )
+)
+
+SET_POS_ELEMENT_FILTER <- list(
+  NOUN_FILTER = lazyeval::interp(~ stringr::str_detect(src_pos, "名詞")),
+  VERB_FILTER = lazyeval::interp(~ stringr::str_detect(dst_pos, "[^助]動詞"))
+)
+
+# 文節毎の品詞をSET_SEP_STRINGでいったん連結した後に、SET_SEP_STRINGで異なるカラムへ
+src_dst_pos <- joinTargetElement(
+  dst_src = dst_src, 
+  src_dst_chunk = createSummary(
+  target = cabocha_res %>% 
+      dplyr::ungroup() %>%
+      dplyr::rename(src = chunk_id),
+    FILTER = SET_CREATE_SUMMARY_POS$FILTER,
+    GROUP_BY_KEY = SET_CREATE_SUMMARY_POS$GROUP_BY_KEY,
+    SUMMARIZE_EL = SET_CREATE_SUMMARY_POS$SUMMARIZE
+  ),
+  JOIN_COL_NAME = SET_JOIN_COL_NAME_POS, SEP_STRING = SET_SEP_STRING
+) %>% 
+  tidyr::separate(col = "src_dst_target", sep = SET_SEP_STRING, into = c("src_pos", "dst_pos"))
+
+dplyr::left_join(
+  x = src_dst_surface,
+  y = src_dst_pos,
+  by = c("sid", "src", "dst")
+) %>%
+  dplyr::filter_(.dots = SET_POS_ELEMENT_FILTER)
+
+```
+
+---
+
+## 44. 係り受け木の可視化
+与えられた文の係り受け木を有向グラフとして可視化せよ．可視化には，係り受け木をDOT言語に変換し，Graphvizを用いるとよい．また，Pythonから有向グラフを直接的に可視化するには，pydotを使うとよい．
+```{r nlp100_knock_44}
+
+# {DiagrammeR}を使用
+createDiagrammeGraph <- function (
+  from, to, 
+  DIAGRAM_GRAPH_PARAM
+) {
+  
+  nodes <- DiagrammeR::create_nodes(
+    nodes = unique(from, to),
+    label = DIAGRAM_GRAPH_PARAM$NODE$LABEL,
+    style = DIAGRAM_GRAPH_PARAM$NODE$STYLE, color = DIAGRAM_GRAPH_PARAM$NODE$COLOR,
+    shape = rep(DIAGRAM_GRAPH_PARAM$NODE$SHAPE, length = length(unique(from, to)))
+  )
+  edges <- DiagrammeR::create_edges(
+    from = from, to = to,
+    relationship = DIAGRAM_GRAPH_PARAM$EDGE$RELATIONSHIP
+  )
+  return(
+    DiagrammeR::create_graph(
+      nodes_df = nodes, edges_df = edges,
+      node_attrs = DIAGRAM_GRAPH_PARAM$ATTRS$NODE,
+      edge_attrs = DIAGRAM_GRAPH_PARAM$ATTRS$EDGE,
+      directed = DIAGRAM_GRAPH_PARAM$ATTRS$IS_DIRECTED,
+      graph_name = DIAGRAM_GRAPH_PARAM$ATTRS$GRAPH_NAME
+    )
+  )
+}
+
+SET_DIAGRAM_GRAPH_PARAM <- list(
+  NODE = list(
+    LABEL = TRUE, STYLE = "filled", COLOR = "white", SHAPE = "rectangle"
+  ),
+  EDGE = list(
+    RELATIONSHIP = "connected_to"
+  ),
+  ATTRS = list(
+    NODE = "fontname = Helvetica", EDGE = c("color = gray", "arrowsize = 1"),
+    IS_DIRECTED = TRUE,
+    GRAPH_NAME = "dependency_tree"
+  )
+)
+
+
+SET_SHOW_DEPENDENCY_TREE_SID <- 10
+
+source_dependency_tree <- src_dst_surface %>%
+  dplyr::filter(sid == SET_SHOW_DEPENDENCY_TREE_SID) %>%
+  tidyr::separate(col = "src_dst_target", sep = SET_SEP_STRING, into = c("src_surface", "dst_surface"))
+
+diagramme_graph <- createDiagrammeGraph(
+  from = source_dependency_tree$src_surface,
+  to = source_dependency_tree$dst_surface,
+  DIAGRAM_GRAPH_PARAM = SET_DIAGRAM_GRAPH_PARAM
+)
+DiagrammeR::render_graph(graph = diagramme_graph, output = "graph")
+
+```
+
+---
+
+## 45. 動詞の格パターンの抽出
+今回用いている文章をコーパスと見なし，日本語の述語が取りうる格を調査したい． 動詞を述語，動詞に係っている文節の助詞を格と考え，述語と格をタブ区切り形式で出力せよ． ただし，出力は以下の仕様を満たすようにせよ．
+
+動詞を含む文節において，最左の動詞の基本形を述語とする
+述語に係る助詞を格とする
+述語に係る助詞（文節）が複数あるときは，すべての助詞をスペース区切りで辞書順に並べる
+「吾輩はここで始めて人間というものを見た」という例文（neko.txt.cabochaの8文目）を考える． この文は「始める」と「見る」の２つの動詞を含み，「始める」に係る文節は「ここで」，「見る」に係る文節は「吾輩は」と「ものを」と解析された場合は，次のような出力になるはずである．
+
+始める  で  
+見る    は を  
+
+このプログラムの出力をファイルに保存し，以下の事項をUNIXコマンドを用いて確認せよ．
+
+コーパス中で頻出する述語と格パターンの組み合わせ
+「する」「見る」「与える」という動詞の格パターン（コーパス中で出現頻度の高い順に並べよ）
+```{r nlp100_knock_45}
+
+# 文節内の述語と助詞をそれぞれ抽出してJOIN
+
+extractMatchEachElement <- function (
+  target, EXTRACT_PARAM
+){
+  return(
+    target %>%
+      dplyr::mutate_(
+        .dots = setNames(
+          object = list(EXTRACT_PARAM$UNNEST$ACT), nm = EXTRACT_PARAM$UNNEST$NAME_EL
+        )
+      ) %>%
+      tidyr::unnest_(unnest_cols = EXTRACT_PARAM$UNNEST$NAME_EL) %>%
+      dplyr::group_by_(.dots = EXTRACT_PARAM$GROUP_BY_KEY) %>%
+      dplyr::mutate_(
+        .dots = setNames(
+          object = list(EXTRACT_PARAM$ROWNUMBER$ACT), nm = EXTRACT_PARAM$ROWNUMBER$NAME_EL
+        )
+      ) %>%
+      dplyr::filter_(.dots = EXTRACT_PARAM$FILTER) %>%
+      dplyr::mutate_(
+        .dots = setNames(
+          object = list(EXTRACT_PARAM$INSERT$ACT), nm = EXTRACT_PARAM$INSERT$NAME_EL
+        )
+      ) %>%
+      dplyr::select_(.dots = EXTRACT_PARAM$INSERT$NAME_EL)
+  )
+}
+
+# 「述語」の抽出用パターン
+SET_EXTRACT_PREDICATE <- list(
+  UNNEST = list(
+    ACT = lazyeval::interp(~ stringr::str_split(string = dst_pos, pattern = "[[:blank:]]")),
+    NAME_EL = "dst_each_pos"
+  ),
+  GROUP_BY_KEY = c("sid", "src", "dst"),
+  ROWNUMBER = list(
+    ACT = lazyeval::interp(~ dplyr::row_number(cid), cid = as.name("src")),
+    NAME_EL = "dst_count"
+  ),
+  FILTER = lazyeval::interp(~ fun(dst_each_pos, "動詞"), fun = as.name("==")),
+  INSERT = list(
+    ACT = lazyeval::interp(
+      ~ stringr::str_split(string = dst_base, pattern = "[[:blank:]]")[[1]][row_number_name[1]],
+      row_number_name = as.name("dst_count")
+    ),
+    NAME_EL = "predicate"
+  )
+)
+
+# 格を抽出するパターン
+SET_EXTRACT_VERB_CASE <- list(
+  UNNEST = list(
+    ACT = lazyeval::interp(~ stringr::str_split(string = src_pos, pattern = "[[:blank:]]")),
+    NAME_EL = "src_each_pos"
+  ),
+  GROUP_BY_KEY = c("sid", "src", "dst"),
+  ROWNUMBER = list(
+    ACT = lazyeval::interp(~ dplyr::row_number(cid), cid = as.name("src")),
+    NAME_EL = "src_count"
+  ),
+  FILTER = lazyeval::interp(~ fun(src_each_pos, "助詞"), fun = as.name("==")),
+  INSERT = list(
+    ACT = lazyeval::interp(
+      ~ stringr::str_split(string = src_base, pattern = "[[:blank:]]")[[1]][row_number_name],
+      row_number_name = as.name("src_count")
+    ),
+    NAME_EL = "verb_case"
+  )
+)
+
+
+SET_SHOW_VERB_CASE_SID <- 6
+SET_VERB_CASE_SEP <- "\\s"
+
+SET_JOIN_COL_NAME_BASE <- "base"
+SET_CREATE_SUMMARY_BASE_BY_SPACE <- list(
+  FILTER = SET_FILTER$SIGN,
+  GROUP_BY_KEY = c("sid", "src"),
+  SUMMARIZE = list(
+    ACT = list(
+      lazyeval::interp(~ unique(link)),
+      lazyeval::interp(
+        ~ stringr::str_c(as.character(el), collapse = sep),
+        el = as.name(SET_JOIN_COL_NAME_BASE), sep = " "
+      )
+    ),
+    NAME_EL = c("dst", SET_JOIN_COL_NAME_BASE)
+  )
+)
+SET_CREATE_SUMMARY_POS_BY_SPACE <- list(
+  FILTER = SET_FILTER$SIGN,
+  GROUP_BY_KEY = c("sid", "src"),
+  SUMMARIZE = list(
+    ACT = list(
+      lazyeval::interp(~ unique(link)),
+      lazyeval::interp(
+        ~ stringr::str_c(as.character(el), collapse = sep),
+        el = as.name(SET_JOIN_COL_NAME_POS), sep = " "
+      )
+    ),
+    NAME_EL = c("dst", SET_JOIN_COL_NAME_POS)
+  )
+)
+
+# 係り受け・先の文節毎の原形を分かち書き
+src_dst_base_chunk_by_space <- joinTargetElement(
+  dst_src = dst_src,
+  src_dst_chunk = createSummary(
+    target = cabocha_res %>% 
+      dplyr::ungroup() %>%
+      dplyr::rename(src = chunk_id),
+    FILTER = SET_CREATE_SUMMARY_BASE_BY_SPACE$FILTER,
+    GROUP_BY_KEY = SET_CREATE_SUMMARY_BASE_BY_SPACE$GROUP_BY_KEY,
+    SUMMARIZE_EL = SET_CREATE_SUMMARY_BASE_BY_SPACE$SUMMARIZE
+  ),
+  JOIN_COL_NAME = SET_JOIN_COL_NAME_BASE, SEP_STRING = SET_SEP_STRING
+) %>%
+  tidyr::separate(col = "src_dst_target", sep = SET_SEP_STRING, into = c("src_base", "dst_base"))
+
+# 係り受け・先の文節毎の品詞を分かち書き
+src_dst_pos_chunk_by_space <- joinTargetElement(
+  dst_src = dst_src,
+  src_dst_chunk = createSummary(
+    target = cabocha_res %>% 
+      dplyr::ungroup() %>%
+      dplyr::rename(src = chunk_id),
+    FILTER = SET_CREATE_SUMMARY_POS_BY_SPACE$FILTER,
+    GROUP_BY_KEY = SET_CREATE_SUMMARY_POS_BY_SPACE$GROUP_BY_KEY,
+    SUMMARIZE_EL = SET_CREATE_SUMMARY_POS_BY_SPACE$SUMMARIZE
+  ),
+  JOIN_COL_NAME = SET_JOIN_COL_NAME_POS, SEP_STRING = SET_SEP_STRING
+) %>%
+  tidyr::separate(col = "src_dst_target", sep = SET_SEP_STRING, into = c("src_pos", "dst_pos"))
+
+
+# 課題の例示と同じ結果を出す
+src_dst_base_pos <- dplyr::left_join(
+  x = src_dst_base_chunk_by_space,
+  y = src_dst_pos_chunk_by_space,
+  by = c("sid", "src", "dst")
+) %>%
+  dplyr::filter(sid == SET_SHOW_VERB_CASE_SID)
+
+dplyr::left_join(
+  x = extractMatchEachElement(
+    target = src_dst_base_pos,
+    EXTRACT_PARAM = SET_EXTRACT_PREDICATE
+  ),
+  y = extractMatchEachElement(
+    target = src_dst_base_pos,
+    EXTRACT_PARAM = SET_EXTRACT_VERB_CASE
+  ),
+  by = c("sid", "src", "dst")
+) %>% 
+  dplyr::group_by_(.dots = c("sid", "dst", "predicate")) %>%
+  summarize(
+    verb_case = stringr::str_c(
+      stringr::str_sort(verb_case, decreasing = FALSE), collapse = SET_VERB_CASE_SEP
+    )
+  )
+
+
+# コーパスを集計
+src_dst_base_pos <- dplyr::left_join(
+  x = src_dst_base_chunk_by_space,
+  y = src_dst_pos_chunk_by_space,
+  by = c("sid", "src", "dst")
+)
+predicate_verb_case_seed <- dplyr::left_join(
+  x = extractMatchEachElement(
+    target = src_dst_base_pos,
+    EXTRACT_PARAM = SET_EXTRACT_PREDICATE
+  ),
+  y = extractMatchEachElement(
+    target = src_dst_base_pos,
+    EXTRACT_PARAM = SET_EXTRACT_VERB_CASE
+  ),
+  by = c("sid", "src", "dst")
+) %>% 
+  na.omit() %>%
+  dplyr::distinct()
+
+predicate_verb_case <- predicate_verb_case_seed %>%
+  dplyr::group_by_(.dots = c("sid", "dst", "predicate")) %>%
+  summarize(
+    verb_case = stringr::str_c(
+      stringr::str_sort(verb_case, decreasing = FALSE), collapse = SET_VERB_CASE_SEP
+    )
+  )
+
+
+# コーパス中で頻出する述語と格パターンの組み合わせ
+predicate_verb_case %>% 
+  dplyr::group_by(predicate, verb_case) %>%
+  dplyr::summarize(freq = n()) %>%
+  dplyr::ungroup() %>%
+  dplyr::arrange(desc(freq))
+
+
+# 出現頻度の高い述語(TOP5)における頻度の高い格(TOP5)
+freq_top_5_predicate <- predicate_verb_case %>%
+  dplyr::group_by(predicate) %>%
+  dplyr::summarize(predicate_freq = n()) %>%
+  dplyr::arrange(desc(predicate_freq)) %>%
+  dplyr::top_n(n = 5, wt = predicate_freq) %>%
+  print
+
+predicate_verb_case %>%
+  dplyr::filter(is.element(el = predicate, set = freq_top_5_predicate$predicate)) %>%
+  dplyr::group_by(predicate, verb_case) %>%
+  dplyr::summarize(freq = n()) %>%
+  dplyr::filter(dplyr::row_number(dplyr::desc(freq)) <= 5) %>%
+  as.data.frame
+
+
+# Linux上での確認は省略
+
+```
+
+---
+
+## 46. 動詞の格フレーム情報の抽出
+45のプログラムを改変し，述語と格パターンに続けて項（述語に係っている文節そのもの）をタブ区切り形式で出力せよ．45の仕様に加えて，以下の仕様を満たすようにせよ．
+
+項は述語に係っている文節の単語列とする（末尾の助詞を取り除く必要はない）
+述語に係る文節が複数あるときは，助詞と同一の基準・順序でスペース区切りで並べる
+「吾輩はここで始めて人間というものを見た」という例文（neko.txt.cabochaの8文目）を考える． この文は「始める」と「見る」の２つの動詞を含み，「始める」に係る文節は「ここで」，「見る」に係る文節は「吾輩は」と「ものを」と解析された場合は，次のような出力になるはずである．
+
+始める  で      ここで  
+見る    は を   吾輩は ものを  
+```{r nlp100_knock_46}
+
+SET_DE_SPACE_SEP <- "\\\\s"
+
+src_dst_surface_chunk <- src_dst_surface %>%
+  tidyr::separate(col = "src_dst_target", sep = SET_SEP_STRING, into = c("src_surface", "dst_surface"))
+
+predicate_argument <- dplyr::left_join(
+  x = predicate_verb_case_seed,
+  y = src_dst_surface_chunk,
+  by = c("sid", "src", "dst")
+) %>% 
+  dplyr::group_by(sid, dst, predicate) %>%
+  dplyr::summarize(
+    verb_cases = stringr::str_c(
+      verb_case[unique(as.integer(stringr::str_order(verb_case, decreasing = FALSE)))],
+      collapse = SET_VERB_CASE_SEP
+    ),
+    arguments = stringr::str_c(
+      src_surface[unique(as.integer(stringr::str_order(verb_case, decreasing = FALSE)))],
+      collapse = SET_VERB_CASE_SEP
+    )
+  )
+
+predicate_argument %>%
+  dplyr::filter(sid == SET_SHOW_VERB_CASE_SID)
+
+```
+
+---
+
+## 47. 機能動詞構文のマイニング
+動詞のヲ格にサ変接続名詞が入っている場合のみに着目したい．46のプログラムを以下の仕様を満たすように改変せよ．
+
+「サ変接続名詞+を（助詞）」で構成される文節が動詞に係る場合のみを対象とする
+述語は「サ変接続名詞+を+動詞の基本形」とし，文節中に複数の動詞があるときは，最左の動詞を用いる
+述語に係る助詞（文節）が複数あるときは，すべての助詞をスペース区切りで辞書順に並べる
+述語に係る文節が複数ある場合は，すべての項をスペース区切りで並べる（助詞の並び順と揃えよ）
+例えば「別段くるにも及ばんさと、主人は手紙に返事をする。」という文から，以下の出力が得られるはずである．
+
+返事をする      と に は        及ばんさと 手紙に 主人は  
+
+このプログラムの出力をファイルに保存し，以下の事項をUNIXコマンドを用いて確認せよ．
+
+コーパス中で頻出する述語（サ変接続名詞+を+動詞）
+コーパス中で頻出する述語と助詞パターン
+```{r nlp100_knock_47}
+
+# $ cabocha -f1
+# 別段くるにも及ばんさと、主人は手紙に返事をする
+# * 0 1D 0/0 0.787846
+# 別段	副詞,助詞類接続,*,*,*,*,別段,ベツダン,ベツダン
+# * 1 2D 0/2 2.294919
+# くる	動詞,自立,*,*,カ変・クル,基本形,くる,クル,クル
+# に	助詞,格助詞,一般,*,*,*,に,ニ,ニ
+# も	助詞,係助詞,*,*,*,*,も,モ,モ
+# * 2 6D 0/3 -1.816825
+# 及ば	動詞,自立,*,*,五段・バ行,未然形,及ぶ,オヨバ,オヨバ
+# ん	助動詞,*,*,*,不変化型,基本形,ん,ン,ン
+# さ	助詞,終助詞,*,*,*,*,さ,サ,サ
+# と	助詞,格助詞,引用,*,*,*,と,ト,ト
+# 、	記号,読点,*,*,*,*,、,、,、
+# * 3 6D 0/1 -1.816825
+# 主人	名詞,一般,*,*,*,*,主人,シュジン,シュジン
+# は	助詞,係助詞,*,*,*,*,は,ハ,ワ
+# * 4 6D 0/1 -1.816825
+# 手紙	名詞,一般,*,*,*,*,手紙,テガミ,テガミ
+# に	助詞,格助詞,一般,*,*,*,に,ニ,ニ
+# * 5 6D 0/1 -1.816825
+# 返事	名詞,サ変接続,*,*,*,*,返事,ヘンジ,ヘンジ
+# を	助詞,格助詞,一般,*,*,*,を,ヲ,ヲ
+# * 6 -1D 0/0 0.000000
+# する	動詞,自立,*,*,サ変・スル,基本形,する,スル,スル
+# EOS
+
+SET_SHOW_TASK_SID <- 869
+
+SET_EXTRACT_SA_WO_VERB_CASE <- list(
+  UNNEST = list(
+    ACT = lazyeval::interp(~ stringr::str_split(string = src_pos, pattern = "[[:blank:]]")),
+    NAME_EL = "src_each_pos"
+  ),
+  GROUP_BY_KEY = c("sid", "src", "dst"),
+  ROWNUMBER = list(
+    ACT = lazyeval::interp(~ dplyr::row_number(cid), cid = as.name("src")),
+    NAME_EL = "src_count"
+  ),
+  FILTER = lazyeval::interp(~ fun(src_each_pos, "助詞"), fun = as.name("==")),
+  INSERT = list(
+    ACT = lazyeval::interp(
+      ~ stringr::str_split(string = src_base, pattern = "[[:blank:]]")[[1]][row_number_name],
+      row_number_name = as.name("src_count")
+    ),
+    NAME_EL = "verb_case"
+  )
+)
+
+
+# srcとdstは『サ変接続名詞+を+動詞の基本形』の「動詞」のもの
+# （「を」で文節は切れるので、「動詞」にかかる文節のみを対象）
+sa_wo_verb <- cabocha_res %>%
+  dplyr::group_by(sid) %>%
+  dplyr::mutate(
+    is_wo = surface == "を",
+    lag_pos1 = dplyr::lag(pos1, n = 1), lead_pos = dplyr::lead(pos, n = 1),
+    lag_base = dplyr::lag(base, n = 1), lead_base = dplyr::lead(base, n = 1),
+    lead_chunk_id = dplyr::lead(chunk_id, n = 1), lead_link = dplyr::lead(link, n = 1)
+  ) %>%
+  dplyr::filter(is_wo & lag_pos1 == "サ変接続" & lead_pos == "動詞") %>%
+  dplyr::mutate(sa_wo_verb = stringr::str_c(lag_base, base, lead_base, sep = "")) %>%
+  dplyr::select(src = lead_chunk_id, dst = lead_link, sa_wo_verb, wo_src = chunk_id) %>%
+  dplyr::group_by(sid, src, dst, wo_src) %>%
+  dplyr::slice(1)
+
+# srcとdstをひとつ後ろの文節にずらした影響
+# 動詞にかかる格として「を」（サ変接続＋「を』＋動詞）が入るので除去
+sa_wo_verb_case <- dplyr::left_join(
+  x = sa_wo_verb %>% dplyr::ungroup(),
+  y = extractMatchEachElement(
+    target = src_dst_base_pos,
+    EXTRACT_PARAM = SET_EXTRACT_VERB_CASE
+  ) %>% 
+    dplyr::rename(case_src = src),
+  by = c("sid", "src" = "dst")
+) %>%
+  dplyr::filter(wo_src != case_src)
+
+# データができたら、ひとつ前の46と同じように処理する
+sa_wo_verb_case_argument <- dplyr::left_join(
+  x = sa_wo_verb_case,
+  y = src_dst_surface_chunk %>% 
+    dplyr::rename(dependency_src = src),
+  by = c("sid", "src" = "dst")
+) %>% 
+  dplyr::filter(wo_src != dependency_src & case_src == dependency_src) %>%
+  dplyr::group_by(sid, dst, sa_wo_verb) %>%
+  dplyr::summarize(
+    verb_cases = stringr::str_c(
+      verb_case[unique(as.integer(stringr::str_order(verb_case, decreasing = FALSE)))],
+      collapse = SET_VERB_CASE_SEP
+    ),
+    argument = stringr::str_c(
+      src_surface[unique(as.integer(stringr::str_order(verb_case, decreasing = FALSE)))],
+      collapse = SET_VERB_CASE_SEP
+    )
+  ) %>%
+  print
+
+
+# 「及ばんさと」に複数の助詞（「さ」と「と」）があるので、
+# 『述語に係る助詞（文節）が複数あるときは，すべての助詞をスペース区切りで辞書順に並べる』
+# に基づいて両方を出力
+sa_wo_verb_case_argument %>%
+  dplyr::filter(sid == SET_SHOW_TASK_SID)
+
+# Linux上での確認は省略
+
+```
+
+---
+
+## 48. 名詞から根へのパスの抽出
+文中のすべての名詞を含む文節に対し，その文節から構文木の根に至るパスを抽出せよ． ただし，構文木上のパスは以下の仕様を満たすものとする．
+
+各文節は（表層形の）形態素列で表現する
+パスの開始文節から終了文節に至るまで，各文節の表現を"->"で連結する
+「吾輩はここで始めて人間というものを見た」という文（neko.txt.cabochaの8文目）から，次のような出力が得られるはずである．
+
+吾輩は -> 見た  
+ここで -> 始めて -> 人間という -> ものを -> 見た  
+人間という -> ものを -> 見た  
+ものを -> 見た  
+```{r nlp100_knock_48}
+
+
+# ノードの取得は{DiagrammeR}の関数を利用（再帰でルート）
+searchPathFromRoot <- function (
+  dgraph, current_node, history_nodes = c()
+) {
+  
+  daughter_nodes <- DiagrammeR::get_successors(graph = dgraph, node = current_node)
+  history_nodes <- append(history_nodes, daughter_nodes)
+  
+  if (is.null(daughter_nodes)) {
+    return(history_nodes)
+  } else {
+    return(
+      searchPathFromRoot(
+        dgraph = dgraph, 
+        current_node = daughter_nodes, history_nodes = history_nodes
+      )
+    )
+  }
+}
+
+# 上記の関数でルートパスを取得して、ノード文字列を表示
+createPathExpression <- function (
+  from, to, from_node, to_node,
+  PATH_SEP_STRING = " -> ", 
+  DIAGRAM_GRAPH_PARAM
+) {
+  
+  root_path <- lapply(
+    X = from,
+    FUN = searchPathFromRoot, 
+    dgraph = createDiagrammeGraph(
+      from = from, to = to,
+      DIAGRAM_GRAPH_PARAM = DIAGRAM_GRAPH_PARAM
+    )
+  )
+  
+  node_d <- dplyr::data_frame(
+    id = as.character(c(from, to)),
+    name = c(from_node, to_node)
+  ) %>% 
+    dplyr::distinct()
+  
+  return(
+    dplyr::data_frame(
+      rootpath = sapply(
+        X = seq(from = 0, to = length(root_path) - 1), 
+        FUN = function (src_id){
+          return(
+            stringr::str_c(
+              node_d$name[is.element(node_d$id, c(as.character(src_id), root_path[[src_id + 1]]))],
+              collapse = PATH_SEP_STRING
+            )
+          )
+        }
+      )
+    )
+  )
+}
+
+
+SET_SHOW_TASK_SID <- 6
+
+
+linked_src_dst_surface <- dplyr::left_join(
+  x = src_dst_surface_chunk,
+  y = src_dst_pos,
+  by = c("sid", "src", "dst")
+) %>%
+  dplyr::mutate(is_include_noun = stringr::str_detect(string = src_pos, pattern = "名詞"))
+
+# 文番号10まで
+root_path <- linked_src_dst_surface %>%
+  dplyr::filter(sid < 10) %>%
+  dplyr::group_by(sid) %>%
+  dplyr::do(., createPathExpression(
+    from = as.character(.$src), to = as.character(.$dst),
+    from_node = as.character(.$src_surface),
+    to_node = as.character(.$dst_surface),
+    PATH_SEP_STRING = " -> ",
+    DIAGRAM_GRAPH_PARAM = SET_DIAGRAM_GRAPH_PARAM
+  )
+)
+surface_pos_root_path <- dplyr::bind_cols(
+  linked_src_dst_surface %>%
+    dplyr::filter(sid < 10),
+  root_path %>% 
+    dplyr::ungroup() %>%
+    dplyr::select(-sid)
+)
+surface_pos_root_path %>%
+  dplyr::filter(sid == SET_SHOW_TASK_SID & is_include_noun) %>%
+  dplyr::select(-is_include_noun)
+
+# 表示
+surface_pos_root_path %>%
+  dplyr::filter(is_include_noun) %>%
+  dplyr::select(-dst_pos, -is_include_noun) %>%
+  as.data.frame()
+
+```
+
+---
+
+## 49. 名詞間の係り受けパスの抽出
+文中のすべての名詞句のペアを結ぶ最短係り受けパスを抽出せよ．ただし，名詞句ペアの文節番号がiとj（i<j）のとき，係り受けパスは以下の仕様を満たすものとする．
+
+問題48と同様に，パスは開始文節から終了文節に至るまでの各文節の表現（表層形の形態素列）を"->"で連結して表現する
+文節iとjに含まれる名詞句はそれぞれ，XとYに置換する
+また，係り受けパスの形状は，以下の2通りが考えられる．
+
+文節iから構文木の根に至る経路上に文節jが存在する場合: 文節iから文節jのパスを表示
+上記以外で，文節iと文節jから構文木の根に至る経路上で共通の文節kで交わる場合: 文節iから文節kに至る直前のパスと文節jから文節kに至る直前までのパス，文節kの内容を"|"で連結して表示
+例えば，「吾輩はここで始めて人間というものを見た。」という文（neko.txt.cabochaの8文目）から，次のような出力が得られるはずである．
+
+Xは | Yで -> 始めて -> 人間という -> ものを | 見た  
+Xは | Yという -> ものを | 見た  
+Xは | Yを | 見た  
+Xで -> 始めて -> Y  
+Xで -> 始めて -> 人間という -> Y  
+Xという -> Y  
+```{r nlp100_knock_49}
+
+# 問題文が解釈しにくかったのでメモ。
+# まず出力結果は下記のようになると思われる
+# (A - 1)(i = 0, j = 1) Xは | Yで -> 始めて -> 人間という -> ものを | 見た
+# (A - 2)(i = 0, j = 3) Xは | Yという -> ものを | 見た
+# (A - 3)(i = 0, j = 4) Xは | Yを | 見た
+# (B - 1)(i = 1, j = 3) Xで -> 始めて -> Yという
+# (B - 2)(i = 1, j = 4) Xで -> 始めて -> 人間という -> Yを
+# (B - 2)(i = 3, j = 4) Xという -> Yを
+#
+# 入力文の係り受け解析木
+#    吾輩は---------D
+#      ここで-D     |
+#        始めて-D   |
+#      人間という-D |
+#            ものを-D
+#              見た。
+#
+# 「吾輩は」から始まる「A-*」の出力は「文節iと文節jから構文木の根に至る経路上で共通の文節kで交わる場合」
+# 上記の係り受け解析木において、共通の係り受け先である共通の文節kは「見た」
+# 「吾輩は|」 +  「文節j以降の文節kまでの係り受けパス」 + 「|見た」
+#
+# 「ここで」からは「B-*」
+# 文節iから構文木の根に至る経路上に文節jが存在する場合: 文節iから文節jのパスを表示
+
+
+# 条件に合った品詞の表層文字列をXとYに置き換える
+replacePosToXY <- function (
+  node_d, sentence_id,
+  cabocha_res,
+  to_link_pos,
+  CREATE_SUMMARY
+) {
+  return(
+   createSummary(
+    target = cabocha_res %>%
+      dplyr::filter(sid == sentence_id) %>%
+      dplyr::ungroup() %>%
+      dplyr::rename(src = chunk_id) %>%
+      dplyr::mutate(
+        surface = ifelse(src == as.integer(node_d[1]) & pos == to_link_pos, "X", surface),
+        surface = ifelse(src == as.integer(node_d[2]) & pos == to_link_pos, "Y", surface)
+      ) %>%
+      dplyr::filter(src >= as.integer(node_d[1])),
+      FILTER = CREATE_SUMMARY$FILTER,
+      GROUP_BY_KEY = CREATE_SUMMARY$GROUP_BY_KEY,
+      SUMMARIZE_EL = CREATE_SUMMARY$SUMMARIZE
+    )
+  )
+}
+
+# 文節iから構文木の根に至る経路上に文節jが存在する場合(B):
+#   文節iから文節jのパスを表示
+# 上記以外で，文節iと文節jから構文木の根に至る経路上で共通の文節kで交わる場合(A): 
+#   文節iから文節kに至る直前のパスと文節jから文節kに至る直前までのパス，文節kの内容を"|"で連結して表示 
+createDDepPathExpression<- function (
+  i,
+  node_dependency, replace_xy,
+  sep_sign = list(dependency = " -> ", common =   "|")
+){
+  
+  common_dependency_dst <- as.integer(names(which(table(replace_xy[[i]]$dst) > 1)))
+  if (length(common_dependency_dst) > 0) {
+    # 複数個ある場合は想定しない(TODO) 
+    common_dependency_dst <- common_dependency_dst[1]
+    
+    # A
+    dependency_path <- replace_xy[[i]] %>%
+      dplyr::filter(
+        as.integer(node_dependency$i[i]) < src & src < as.integer(common_dependency_dst)
+      ) %>%
+      dplyr::group_by(sid) %>%
+      dplyr::do(.,
+        dplyr::data_frame(
+          dependency_path = searchPathFromRoot(
+            current_node = min(.$src),
+            dgraph = createDiagrammeGraph(
+              from = .$src, to = .$dst,
+              DIAGRAM_GRAPH_PARAM = SET_DIAGRAM_GRAPH_PARAM
+            )
+          )
+        )
+      )
+
+  return(
+    dplyr::bind_rows(
+      replace_xy[[i]] %>%
+        dplyr::filter(is.element(src, node_dependency$i[i])) %>%
+        dplyr::group_by(sid) %>%
+        dplyr::summarize(
+          dependency_path = stringr::str_c(c(surface, sep_sign$common), collapse = " ")
+        ),
+      replace_xy[[i]] %>%
+        dplyr::filter(
+          (src >= node_dependency$j[i]) &
+          is.element(dst, dependency_path$dependency_path) &
+          !(is.element(src, node_dependency$i[i]) | is.element(src, common_dependency_dst))
+        ) %>%
+        dplyr::summarize(
+          dependency_path = stringr::str_c(surface, collapse = sep_sign$dependency)
+        ),
+      replace_xy[[i]] %>%
+        dplyr::filter(is.element(src, common_dependency_dst)) %>%
+        dplyr::group_by(sid) %>%
+        dplyr::summarize(
+          dependency_path = stringr::str_c(c(sep_sign$common, surface), collapse = " ")
+        )
+    ) %>%
+      dplyr::group_by(sid) %>%
+        dplyr::summarize(
+          dependency_path = stringr::str_c(dependency_path, collapse = " ")
+        )
+  )
+
+  } else{
+    # B
+    dependency_path <- replace_xy[[i]] %>%
+      dplyr::filter(
+        as.integer(node_dependency$i[i]) <= src & src <= as.integer(node_dependency$j[i])
+      ) %>%
+      dplyr::group_by(sid) %>%
+      dplyr::do(.,
+        dplyr::data_frame(
+          dependency_path = searchPathFromRoot(
+            current_node = node_dependency$i[i],
+            dgraph = createDiagrammeGraph(
+              from = .$src, to = .$dst,
+              DIAGRAM_GRAPH_PARAM = SET_DIAGRAM_GRAPH_PARAM
+            )
+          )
+        )
+      )
+    
+    return(
+      replace_xy[[i]] %>%
+        dplyr::filter(is.element(dst, dependency_path$dependency_path)) %>%
+        dplyr::summarize(
+          dependency_path = stringr::str_c(surface, collapse = sep_sign$dependency)
+        )
+    )
+  }
+}
+
+
+# 文毎(sid)に処理
+# 2個以上の名詞句が存在することを前提
+linkPhasePathPerSentence <- function (
+  linked_src_dst_surface,
+  to_link_pos = "名詞"
+) {
+
+  # 文節i, jの組み合わせ
+  node_dependency <- dplyr::data_frame(
+    id = as.character(linked_src_dst_surface$src),
+    name = linked_src_dst_surface$src_pos
+  ) %>%
+    dplyr::filter(stringr::str_detect(string = name, pattern = to_link_pos)) %>%
+    do(., data.frame(
+      list(combinations(n = length(.$id), r = 2, v = .$id)), stringsAsFactors = FALSE)
+    ) %>%
+    dplyr::select(i = as.integer(X1), j = as.integer(X2)) %>%
+    dplyr::filter(i < j)
+
+   
+  # 組み合わせ毎に名詞をX, Yにそれぞれ置換
+  replace_xy <- apply(
+    X = node_dependency,
+    MARGIN = 1,
+    FUN = replacePosToXY,
+    sentence_id = unique(linked_src_dst_surface$sid),
+    cabocha_res = cabocha_res,
+    to_link_pos = to_link_pos,
+    CREATE_SUMMARY = SET_CREATE_SUMMARY_SURFACE
+  )
+
+  # 係り受けパスの作成
+  return(
+    do.call("rbind", lapply(
+      X = seq(from = 1, to = nrow(node_dependency)),
+      FUN = createDDepPathExpression, 
+      node_dependency, replace_xy
+    ))
+  )
+}
+
+# 他の文にすると結果がおかしい表示になりそう
+SET_SHOW_DEPENDENCY_PAIR_SID <- 6
+
+linkPhasePathPerSentence(
+  linked_src_dst_surface = dplyr::left_join(
+    x = src_dst_surface,
+    y = src_dst_pos,
+    by = c("sid", "src", "dst")
+  ) %>% 
+    dplyr::filter(sid == SET_SHOW_DEPENDENCY_PAIR_SID),
+  to_link_pos = "名詞"
+)
+
+
+# 44の「係り受け木の可視化」を用いて可視化して確かめる
+source_dependency_tree <- src_dst_surface %>%
+  dplyr::filter(sid == SET_SHOW_DEPENDENCY_PAIR_SID) %>%
+  tidyr::separate(col = "src_dst_target", sep = SET_SEP_STRING, into = c("src_surface", "dst_surface"))
+diagramme_graph <- createDiagrammeGraph(
+  from = source_dependency_tree$src_surface,
+  to = source_dependency_tree$dst_surface,
+  DIAGRAM_GRAPH_PARAM = SET_DIAGRAM_GRAPH_PARAM
+)
+DiagrammeR::render_graph(graph = diagramme_graph, output = "graph")
+
+```
+
+---
+
+---
+
+# 所感  
+- 言語処理100本ノック(2015年版)の構文解析の章をやってみました。  
+
+- 今回は問題の解釈がとても難しく、最後の問題はとても悩んだのでメモを残してあります。これから解く方の参考になれば幸いです（ただし、コードは不完全（係り先が共通する文節が複数個あるとダメ）です。ご注意ください）。  
+
+- 今回は係り受けのパスを辿る際の再帰で{DiagrammeR}の関数を用いていますが、{igraph}の`get.shortest.paths`でも手軽にできそうです。  
+　[shortest.paths {igraph}](http://www.inside-r.org/packages/cran/igraph/docs/average.path.length)  
+
+- 前回同様に{Rcpp}でCaboChaの入出力を処理しましたが、今回はC++11による記法に挑戦しています。しかし、C++がさっぱりわかりません。当然ながらC++11もです。にもかかわらず、{Rcpp}でC++11を書くなど無謀でした。勉強します。  
+
+- また、クラス定義のメリットを享受することないコードになっているので、利活用しやすいように定義するように心がけたいです。係り受け・先やルートパスを辿る課題はその良い教材になりそうなので、力をつけてもう一度挑戦したいところです。
+
+---
+
+---
+
+# 実行環境
+```{r footer}
+library(devtools)
+devtools::session_info()
+```
