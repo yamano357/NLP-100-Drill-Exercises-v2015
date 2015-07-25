@@ -1,0 +1,690 @@
+---
+title: "言語処理100本ノック 第6章:英語テキストの処理"
+author: '@yamano357'
+date: "2015年7月25日"
+output:
+  html_document:
+    theme: readable
+    toc: true
+    toc_depth: 2
+    number_sections: false
+    pandoc_args: [
+      "--from", "markdown+autolink_bare_uris+tex_math_single_backslash-implicit_figures"
+    ]
+    
+---
+
+---
+
+---
+
+前回までのrPubsページ  
+- [第1章:準備運動](http://rpubs.com/yamano357/84965)  
+- [第2章:UNIXコマンドの基礎](http://rpubs.com/yamano357/85313)  
+- [第3章:正規表現](http://rpubs.com/yamano357/86911)  
+- [第4章:形態素解析](http://rpubs.com/yamano357/90200)  
+- [第5章:構文解析](http://rpubs.com/yamano357/91770)  
+
+前回引き続き、言語処理100本ノック（2015年版）を解きます。  
+
+（下記の『前書き（言語処理100本ノックについて）』は前回と同じです）
+
+---
+
+
+# 概要
+前書き（言語処理100本ノックについて）  
+- 本稿では、東北大学の乾・岡崎研究室で公開されている[言語処理100本ノック（2015年版）](http://www.cl.ecei.tohoku.ac.jp/nlp100/)を、R言語で解いていきます。  
+- [改訂前の言語処理100本ノック](http://www.cl.ecei.tohoku.ac.jp/index.php?NLP%20100%20Drill%20Exercises)も同様に上記研究室のサイトにあります。
+
+- 上記のふたつをご覧いただき、下記に進んでいただけますと幸いです。  
+
+---
+
+前書き（Rに関して）  
+- Rの構文や関数についての説明は一切ありませんので、あらかじめご了承ください。  
+- 本稿では、{base}にある文字列処理ではなく、{stringr}（1.0.0以上）とパイプ処理を極力用いております（{stringi}も処理に応じて活用していきます）。課題によってはパイプ処理でこなすのに向かない状況もありますので、あらかじめご了承ください。  
+- 今回は上記に加え、Stanford CoreNLPを{rJava}で呼び出すパッケージを使用していきます。
+
+---
+
+参考ページ  
+
+- {stringr}と{stringi}  
+　[hadley/stringr](https://github.com/hadley/stringr)  
+　[RPubs - このパッケージがすごい2014: stringr](https://rpubs.com/uri-sy/demo_stringr)  
+　[stringiで輝く☆テキストショリスト](http://qiita.com/kohske/items/85d49da04571e9055c44)  
+　[stringr 1.0.0を使ってみる](http://notchained.hatenablog.com/entry/2015/05/01/011703)  
+　[{stringr}/{stringi}とbaseの文字列処理について](http://rpubs.com/yamano357/92478)  
+
+- {readr}  
+　[hadley/readr](https://github.com/hadley/readr)  
+　[readr とは？](http://oku.edu.mie-u.ac.jp/~okumura/stat/readr.html)  
+　[readr 0.0.0.9000を使ってみる](http://notchained.hatenablog.com/entry/2015/03/22/150827)  
+
+- Stanford Core NLP  
+　[Stanford CoreNLP](http://nlp.stanford.edu/software/corenlp.shtml)  
+　[stanfordnlp/CoreNLP](https://github.com/stanfordnlp/CoreNLP)  
+　[Stanford CoreNLPのannotator一覧](http://qiita.com/yubessy/items/0a4a59550cfddb79cdb5)  
+　[CoreNLPのダウンロードから利用のメモ](http://qiita.com/pawjun/items/4325464cecf938024ea5)  
+
+- {rJava}  
+　[rJava - Low-level R to Java interface](http://www.rforge.net/rJava/)  
+　[s-u/rJava](https://github.com/s-u/rJava)  
+　[Getting R and Java 1.8 to work together on OSX](http://conjugateprior.org/2014/12/r-java8-osx/)
+  
+
+---
+
+ご意見やご指摘など  
+- こうした方が良いやこういう便利な関数がある、間違いがあるなど、ご指摘をお待ちしております。  
+- 下記のいずれかでご連絡・ご報告いただけますと励みになります（なお、Gitに慣れていない人です）。  
+　[Twitter](https://twitter.com/yamano357), [GitHub](https://github.com/yamano357/NLP-100-Drill-Exercises-v2015)  
+
+---
+
+---
+
+# {rJava}の設定  
+## 設定する必要がある場合 
+- Stanford CoreNLPのRパッケージを使うため、javaのバージョンを7系以上にしておく必要あり（今回は8系に。Stanford CoreNLP自体に8+という風に書いてある気がしないでも）  
+- Macの場合はHomebrewで管理した方が楽（しないとツラい）  
+　http://www.task-notes.com/entry/20150406/1428289200  
+　http://qiita.com/ringo/items/db58b34dc02a941b297f  
+　http://javaworld.helpfulness.jp/post-50/  
+- Mac(Yosemite時点)ではシステム上のJavaが6系が残っている（上記リンクを参照）ので、`R CMD javareconf`が「/Library/Java/」以下でなく「/System/Library/」を参照してしまう場合がある  
+　https://github.com/s-u/rJava/issues/37  
+　https://github.com/s-u/rJava/issues/36  
+　http://stackoverflow.com/questions/26948777/how-can-i-make-rjava-use-the-newer-version-of-java-on-osx  
+
+```
+# Mac上に複数バージョンが混在している状況
+$ /usr/libexec/java_home -V
+Matching Java Virtual Machines (4):
+  1.8.0_51, x86_64:	"Java SE 8"	/Library/Java/JavaVirtualMachines/jdk1.8.0_51.jdk/Contents/Home
+  1.7.0_79, x86_64:	"Java SE 7"	/Library/Java/JavaVirtualMachines/jdk1.7.0_79.jdk/Contents/Home
+  1.6.0_65-b14-466.1, x86_64:	"Java SE 6"	/System/Library/Java/JavaVirtualMachines/1.6.0.jdk/Contents/Home
+  1.6.0_65-b14-466.1, i386:	"Java SE 6"	/System/Library/Java/JavaVirtualMachines/1.6.0.jdk/Contents/Home
+
+/Library/Java/JavaVirtualMachines/jdk1.8.0_51.jdk/Contents/Home
+```
+
+```
+# {rJava}が参照しているバージョンの確認用
+# "1.6.*"を返すのではなく"1.8.*"を返して欲しい
+library(rJava)  
+.jinit()
+.jcall("java/lang/System", "S", "getProperty", "java.runtime.version")
+```
+
+```
+# "1.8.*"でないと{rJava}の実行はできても、{StanfordCoreNLP}や{coreNLP}で文字列を与えると"Unsupported major.minor version 52.0 error"が出る 
+library(StanfordCoreNLP)
+x <- paste("Stanford University is located in California.", "It is a great university.")
+p <- StanfordCoreNLP::StanfordCoreNLP_Pipeline(NULL)
+p(s = x)
+# ここでエラーが発生する
+```
+
+## 対処メモ  
+- .bash_profileに追記  
+　`$ export JAVA_HOME=$(/usr/libexec/java_home -v 1.8)`  
+-- 確認  
+　`$ echo $JAVA_HOME`  
+　　`/Library/Java/JavaVirtualMachines/jdk1.8.0_51.jdk/Contents/Home`  
+　`$ java -version`  
+　　`java version "1.8.0_51"`  
+　"JAVA_LD_LIBRARY_PATH"は設定しなくてもいいかも  
+　`$ echo $JAVA_LD_LIBRARY_PATH`
+　  `/Library/Java/JavaVirtualMachines/jdk1.8.0_51.jdk/Contents/Home/jre/lib/server/`  
+
+- `R CMD javareconf`の引数で"JNI cpp flags"と"JNI linker flags"を自分でインストールしたJavaのパス（「/Library/Java」以下）にしようとしてもダメだったので、参照先（「/System/Library」以下）にある"CurrentJDK"のシンボリックリンクが1.8系になるようにhomebrewで更新（「最後にインストールしたバージョンでシンボリックリンクが作成されている」という文面があったので、もしかしたらhomebrewでなくても新しくインストールしなおせば良いのかも）。ここで"CurrentJDK"のシンボリックリンクが1.6系になっているとダメ  
+```
+$ ls -l /System/Library/Frameworks/JavaVM.framework/Versions/
+  total 64
+  lrwxr-xr-x  1 root  wheel   10 11 30  2014 1.4 -> CurrentJDK
+  lrwxr-xr-x  1 root  wheel   10 11 30  2014 1.4.2 -> CurrentJDK
+  lrwxr-xr-x  1 root  wheel   10 11 30  2014 1.5 -> CurrentJDK
+  lrwxr-xr-x  1 root  wheel   10 11 30  2014 1.5.0 -> CurrentJDK
+  lrwxr-xr-x  1 root  wheel   10 11 30  2014 1.6 -> CurrentJDK
+  lrwxr-xr-x  1 root  wheel   10 11 30  2014 1.6.0 -> CurrentJDK
+  drwxr-xr-x  8 root  wheel  272 11 30  2014 A
+  lrwxr-xr-x  1 root  wheel    1 11 30  2014 Current -> A
+  lrwxr-xr-x  1 root  wheel   58  7 20 06:29 CurrentJDK ->   /Library/Java/JavaVirtualMachines/jdk1.8.0_51.jdk/Contents
+```
+
+- warningが出ているが、{rJava}での参照先が8系のシンボリックリンク    
+  `$ R CMD javareconf`  
+  
+```
+Java interpreter : /Library/Java/JavaVirtualMachines/jdk1.8.0_51.jdk/Contents/Home/jre/bin/java
+Java version     : 1.8.0_51
+Java home path   : /Library/Java/JavaVirtualMachines/jdk1.8.0_51.jdk/Contents/Home
+Java compiler    : /Library/Java/JavaVirtualMachines/jdk1.8.0_51.jdk/Contents/Home/bin/javac
+Java headers gen.: /Library/Java/JavaVirtualMachines/jdk1.8.0_51.jdk/Contents/Home/bin/javah
+Java archive tool: /Library/Java/JavaVirtualMachines/jdk1.8.0_51.jdk/Contents/Home/bin/jar
+System Java on OS X
+ 
+trying to compile and link a JNI program 
+detected JNI cpp flags    : -I/System/Library/Frameworks/JavaVM.framework/Headers
+detected JNI linker flags : -framework JavaVM
+clang -I/Library/Frameworks/R.framework/Resources/include    -I/System/Library/Frameworks/JavaVM.framework/Headers -I/usr/local/include -I/usr/local/include/freetype2 -I/opt/X11/include -DPLATFORM_PKGTYPE='"mac.binary.mavericks"'    -fPIC  -Wall -mtune=core2 -g -O2  -c conftest.c -o conftest.o
+conftest.c:4:5: warning: 'JNI_CreateJavaVM' is deprecated [-Wdeprecated-declarations]
+     JNI_CreateJavaVM(0, 0, 0);
+     ^
+/System/Library/Frameworks/JavaVM.framework/Headers/jni.h:1937:1: note: 'JNI_CreateJavaVM' has been explicitly marked
+deprecated here
+JNI_CreateJavaVM(JavaVM **pvm, void **penv, void *args);
+^
+1 warning generated.
+clang -dynamiclib -Wl,-headerpad_max_install_names -undefined dynamic_lookup -single_module -multiply_defined suppress -L/Library/Frameworks/R.framework/Resources/lib -L/usr/local/lib -o conftest.so conftest.o -framework JavaVM -F/Library/Frameworks/R.framework/.. -framework R -Wl,-framework -Wl,CoreFoundation
+ 
+JAVA_HOME        : /Library/Java/JavaVirtualMachines/jdk1.8.0_51.jdk/Contents/Home
+Java library path: /Library/Java/JavaVirtualMachines/jdk1.8.0_51.jdk/Contents/Home/jre/lib/server/
+JNI cpp flags    : -I/System/Library/Frameworks/JavaVM.framework/Headers
+JNI linker flags : -framework JavaVM
+Updating Java configuration in /Library/Frameworks/R.framework/Resources
+Done.
+```
+
+
+# Rコード  
+- 以下、ひたすら解いていきます。  
+
+## パッケージ読み込み
+```{r read_lib, message = FALSE}
+# devtools::install_github("statsmaths/coreNLP")
+# {coreNLP}では事前にStanford CoreNLPのCoreファイルを公式サイトから用意しておく必要がある
+# 下記の関数でダウンロードできるが、中身は結構ハードコーディング
+# coreNLP::downloadCoreNLP(type = "base")
+SET_LOAD_LIB <- c("knitr", "readr", "dplyr", "stringr", "stringi", "lazyeval", "SnowballC", "coreNLP", "xml2", "DiagrammeR")
+sapply(X = SET_LOAD_LIB, FUN = library, character.only = TRUE, logical.return = TRUE)
+knitr::opts_chunk$set(comment = NA)
+```
+
+---
+
+## 事前準備
+```{r priprocess, cache = TRUE}
+# 第6章の入力データURL（固定）
+TASK_INPUT_URL <- "http://www.cl.ecei.tohoku.ac.jp/nlp100/data/nlp.txt"
+
+# ファイル取得 
+download.file(
+  url = TASK_INPUT_URL, destfile = basename(TASK_INPUT_URL), 
+  method = "wget", quiet = FALSE
+)
+if (file.exists(file =  basename(TASK_INPUT_URL))) {
+  INPUT_TEXT <- readr::read_lines(file = basename(TASK_INPUT_URL), n_max = -1)
+} else{
+  stop("File not found.") 
+}
+
+```
+
+---
+
+## 50. 文区切り
+(. or ; or : or ? or !) → 空白文字 → 英大文字というパターンを文の区切りと見なし，入力された文書を1行1文の形式で出力せよ．
+```{r nlp100_knock_50}
+
+SET_SENTENCE_BREAK_PATTERN <- "([.;:?!])[:blank:]([A-Z])"
+
+input_sentence <- stringr::str_replace_all(
+  string = INPUT_TEXT, 
+  pattern = SET_SENTENCE_BREAK_PATTERN, replacement = "\\1\n\\2"
+) %>%
+  stringr::str_split(pattern = "\n") %>%
+  dplyr::combine() %>%
+  dplyr::data_frame(sentence = .) %>%
+  print
+
+```
+
+---
+
+## 51. 単語の切り出し
+空白を単語の区切りとみなし，50の出力を入力として受け取り，1行1単語の形式で出力せよ．ただし，文の終端では空行を出力せよ．
+```{r nlp100_knock_51}
+
+# stringr::str_splitは引数patternの文字列を置き換えてしまうので、文末に規定の文字列を配置してそれで区切る（「文の終端では空行を出力」するため）
+SET_SENTENE_END_SYMBOL <- "EOS"
+
+input_word <- stringr::str_split(
+  string = stringr::str_c(input_sentence$sentence, SET_SENTENE_END_SYMBOL, sep = " "), 
+  pattern = stringr::boundary(type = "word", skip_word_none = TRUE)
+) %>%
+  dplyr::combine() %>%
+  stringr::str_replace_all(pattern = SET_SENTENE_END_SYMBOL, replacement = "") %>%
+  dplyr::data_frame(word = .) %>%
+  print
+
+```
+
+---
+
+## 52. ステミング
+51の出力を入力として受け取り，Porterのステミングアルゴリズムを適用し，単語と語幹をタブ区切り形式で出力せよ． Pythonでは，Porterのステミングアルゴリズムの実装としてstemmingモジュールを利用するとよい．
+```{r nlp100_knock_52}
+
+SET_SEP_STRING <- "\t"
+
+# {SnowballC}にある"porter"を使う
+SnowballC::getStemLanguages()
+
+input_word %>%
+  dplyr::mutate(stem = SnowballC::wordStem(words = .$word, language = "porter")) %>%
+  dplyr::mutate(
+    word_stem = ifelse(
+      test = word != "",
+      yes = stringr::str_c(as.character(.$word), as.character(.$stem), sep = SET_SEP_STRING),
+      no = .$word
+    )
+  ) 
+
+```
+
+---
+
+## 53. Tokenization
+Stanford Core NLPを用い，入力テキストの解析結果をXML形式で得よ．また，このXMLファイルを読み込み，入力テキストを1行1単語の形式で出力せよ．
+```{r nlp100_knock_53}
+
+SET_USE_ANNOTATORS <- c("tokenize", "ssplit", "pos", "lemma", "ner", "parse", "depparse", "dcoref")
+
+# 今回は{coreNLP}を使ってStanford Core NLPの結果を受け取る
+coreNLP::initCoreNLP(
+  libLoc = stringr::str_c(
+    system.file("extdata", package = "coreNLP"), "/stanford-corenlp-full-2015-04-20"
+  ),
+  mem = "3g",
+  annotators = SET_USE_ANNOTATORS
+)
+
+# XMLをパースして単語のみを抽出
+xml2::read_xml(
+  x = coreNLP::annotateString(text = input_sentence$sentence, format = "xml"),
+  encoding = "UTF-8"
+) %>%
+  xml2::xml_find_all(".//word") %>%
+  xml2::xml_text(trim = TRUE) %>%
+  dplyr::data_frame(word = .)
+
+# 引数formatを"obj"にしてtokenだけ抽出すると楽
+anno_obj <- coreNLP::annotateString(text = input_sentence$sentence, format = "obj")
+anno_obj$token %>%
+  dplyr::select(token) %>%
+  dplyr::as_data_frame()
+
+```
+
+---
+
+## 54. 品詞タグ付け
+Stanford Core NLPの解析結果XMLを読み込み，単語，レンマ，品詞をタブ区切り形式で出力せよ．
+```{r nlp100_knock_54}
+
+# annotation objectを利用
+anno_obj$token %>%
+  dplyr::mutate(pos_tagging = stringr::str_c(token, lemma, POS, sep = SET_SEP_STRING)) %>%
+  dplyr::select(pos_tagging) %>%
+  dplyr::as_data_frame()
+
+```
+
+---
+
+## 55. 固有表現抽出
+入力文中の人名をすべて抜き出せ．
+```{r nlp100_knock_55}
+
+# 人名以外も含まれているが、不要な語も
+anno_obj$token %>%
+  dplyr::filter(
+    POS == "NNP" & 
+    !is.element(NER, c("ORGANIZATION", "ORGANIZATION", "MISC", "LOCATION")) &
+    Speaker != "which" &
+    token != stringr::str_to_upper(token) &
+    !stringr::str_detect(string = token, pattern = "^[A-Z].*?[A-Z]")
+  ) %>% 
+  dplyr::select(-CharacterOffsetBegin, -CharacterOffsetEnd, -Speaker)
+  
+
+# 「NER == "PERSON"」では洩れるものもある（ex. Cullingford）
+anno_obj$token %>%
+  dplyr::filter(NER == "PERSON") %>% 
+  dplyr::select(-CharacterOffsetBegin, -CharacterOffsetEnd, -Speaker)
+
+```
+
+---
+
+## 56. 共参照解析
+Stanford Core NLPの共参照解析の結果に基づき，文中の参照表現（mention）を代表参照表現（representative mention）に置換せよ．ただし，置換するときは，「代表参照表現（参照表現）」のように，元の参照表現が分かるように配慮せよ．
+```{r nlp100_knock_56}
+
+# 1文ずつ処理しないと共参照の範囲が広くて挙動がおかしいような
+coref_res <- do.call(
+  "rbind", 
+  lapply(X = seq(from = 1, to = length(input_sentence$sentence)), function (i) {
+    input_xml <- xml2::read_xml(
+      x = coreNLP::annotateString(text = input_sentence$sentence[i], format = "xml"),
+      encoding = "UTF-8"
+    )
+    sentence <- input_xml %>%
+        xml2::xml_find_all(xpath = ".//coreference/coreference/mention/sentence") %>%
+        xml2::xml_text(trim = TRUE)
+    return(
+      dplyr::data_frame(
+       sentence = numeric(length = length(sentence)) + i - 1,
+      start = input_xml %>%
+        xml2::xml_find_all(xpath = ".//coreference/coreference/mention/start") %>%
+        xml2::xml_text(trim = TRUE),
+      end = input_xml %>%
+        xml2::xml_find_all(xpath = ".//coreference/coreference/mention/end") %>%
+        xml2::xml_text(trim = TRUE),
+      head = input_xml %>%
+        xml2::xml_find_all(xpath = ".//coreference/coreference/mention/head") %>%
+        xml2::xml_text(trim = TRUE),
+      text = input_xml %>%
+        xml2::xml_find_all(xpath = ".//coreference/coreference/mention/text") %>%
+        xml2::xml_text(trim = TRUE),
+      is_representative = input_xml %>%
+        xml2::xml_find_all(xpath = ".//coreference/coreference/mention") %>%
+        xml2::xml_attr(attr = "representative")
+      )
+    )
+  })
+)
+
+# 比較用
+input_xml <- xml2::read_xml(
+  x = coreNLP::annotateString(text = input_sentence$sentence, format = "xml"),
+  encoding = "UTF-8"
+)
+all_coref_res <- dplyr::left_join(
+  x = dplyr::data_frame(
+    sentence = input_xml %>%
+      xml2::xml_find_all(xpath = ".//coreference/coreference/mention/sentence") %>%
+      xml2::xml_text(trim = TRUE),
+    start = input_xml %>%
+      xml2::xml_find_all(xpath = ".//coreference/coreference/mention/start") %>%
+      xml2::xml_text(trim = TRUE),
+    end = input_xml %>%
+      xml2::xml_find_all(xpath = ".//coreference/coreference/mention/end") %>%
+      xml2::xml_text(trim = TRUE),
+    head = input_xml %>%
+      xml2::xml_find_all(xpath = ".//coreference/coreference/mention/head") %>%
+      xml2::xml_text(trim = TRUE),
+    text = input_xml %>%
+      xml2::xml_find_all(xpath = ".//coreference/coreference/mention/text") %>%
+      xml2::xml_text(trim = TRUE),
+    is_representative = input_xml %>%
+      xml2::xml_find_all(xpath = ".//coreference/coreference/mention") %>%
+      xml2::xml_attr(attr = "representative")
+  ),
+  y = anno_obj$coref,
+  by = c("sentence", "start", "end", "head", "text")
+)
+
+coref_res %>%
+  dplyr::filter(sentence == 1) %>%
+  as.data.frame
+
+all_coref_res %>%
+  dplyr::filter(sentence == 1) %>%
+  as.data.frame
+
+
+# 一文ずつ入力していく方で解く
+# {coreNLP}のgetCoreference関数だとrepresentativeがない
+token_coref_res <- dplyr::left_join(
+  x = do.call(
+    "rbind", 
+    lapply(X = seq(from = 1, to = length(input_sentence$sentence)), function (i) {
+      token <- coreNLP::annotateString(text = input_sentence$sentence[i], format = "obj")$token
+      if(!is.null(token)) {
+        token$sentence <- i
+      }
+      return(token)
+    })
+  ),
+  y = coref_res %>%
+    dplyr::group_by(sentence) %>%
+    dplyr::mutate(replace_text = dplyr::lag(x = text, n = 1)) %>%
+    dplyr::ungroup(.) %>%
+    dplyr::mutate(
+      sentence = sentence + 1,
+      end = as.integer(end) - 1
+    ),
+  by = c("sentence", "id" = "start")
+)
+
+# FIX: "for"の削除
+representative_res <- lapply(
+  X = unique(token_coref_res$sentence[!is.na(token_coref_res$replace_text)]),
+  FUN = function (rep_i) {
+    each_token_coref_res <- token_coref_res %>%
+      dplyr::filter(sentence == rep_i)
+    merge_str <- c()
+    replace_flag <- 0
+    cut_end_idx <- NULL
+    for(tid in as.integer(each_token_coref_res$id)) {
+      if (!is.na(each_token_coref_res$replace_text[tid])) {
+        merge_str <- append(
+          merge_str, 
+          stringr::str_c(
+            each_token_coref_res$replace_text[tid],
+            "(", each_token_coref_res$text[tid], ")"
+          )
+        )
+        replace_flag <- 1
+        cut_end_idx <- as.integer(each_token_coref_res$end[tid])
+      } else if (replace_flag == 0) {
+        merge_str <- append(merge_str, each_token_coref_res$token[tid])
+      } else {
+        if (tid > cut_end_idx) {
+          replace_flag <- 0
+          merge_str <- append(merge_str, each_token_coref_res$token[tid])
+        }
+      }
+    }
+    return(stringr::str_c(merge_str, collapse = " "))
+  }
+) %>%
+  dplyr::combine() %>%
+  print
+
+```
+
+---
+
+## 57. 係り受け解析
+Stanford Core NLPの係り受け解析の結果（collapsed-dependencies）を有向グラフとして可視化せよ．可視化には，係り受け木をDOT言語に変換し，Graphvizを用いるとよい．また，Pythonから有向グラフを直接的に可視化するには，pydotを使うとよい．
+```{r nlp100_knock_57}
+
+# 44. 「係り受け解析木の可視化」を利用
+createDiagrammeGraph <- function (
+  from, to, 
+  DIAGRAM_GRAPH_PARAM
+) {
+  
+  nodes <- DiagrammeR::create_nodes(
+    nodes = unique(from, to),
+    label = DIAGRAM_GRAPH_PARAM$NODE$LABEL,
+    style = DIAGRAM_GRAPH_PARAM$NODE$STYLE, color = DIAGRAM_GRAPH_PARAM$NODE$COLOR,
+    shape = rep(DIAGRAM_GRAPH_PARAM$NODE$SHAPE, length = length(unique(from, to)))
+  )
+  edges <- DiagrammeR::create_edges(
+    from = from, to = to,
+    relationship = DIAGRAM_GRAPH_PARAM$EDGE$RELATIONSHIP
+  )
+  return(
+    DiagrammeR::create_graph(
+      nodes_df = nodes, edges_df = edges,
+      node_attrs = DIAGRAM_GRAPH_PARAM$ATTRS$NODE,
+      edge_attrs = DIAGRAM_GRAPH_PARAM$ATTRS$EDGE,
+      directed = DIAGRAM_GRAPH_PARAM$ATTRS$IS_DIRECTED,
+      graph_name = DIAGRAM_GRAPH_PARAM$ATTRS$GRAPH_NAME
+    )
+  )
+}
+
+SET_DIAGRAM_GRAPH_PARAM <- list(
+  NODE = list(
+    LABEL = TRUE, STYLE = "filled", COLOR = "white", SHAPE = "rectangle"
+  ),
+  EDGE = list(
+    RELATIONSHIP = "connected_to"
+  ),
+  ATTRS = list(
+    NODE = "fontname = Helvetica", EDGE = c("color = gray", "arrowsize = 1"),
+    IS_DIRECTED = TRUE,
+    GRAPH_NAME = "dependency_tree"
+  )
+)
+
+SET_PLOT_SENTENCE_ID <- 1
+
+
+plot_dependencies <- coreNLP::getDependency(annotation = anno_obj, type = "collapsed") %>%
+  dplyr::filter(sentence == SET_PLOT_SENTENCE_ID) %>%
+  dplyr::filter(!stringr::str_detect(string = .$type, pattern = "^root$|^punct$"))
+
+# 親子関係を反対にして可視化
+diagramme_graph <- createDiagrammeGraph(
+  from = plot_dependencies$dependent,
+  to = plot_dependencies$governor,
+  DIAGRAM_GRAPH_PARAM = SET_DIAGRAM_GRAPH_PARAM
+)
+DiagrammeR::render_graph(graph = diagramme_graph, output = "graph")
+
+```
+
+---
+
+## 58. タプルの抽出
+Stanford Core NLPの係り受け解析の結果（collapsed-dependencies）に基づき，「主語 述語 目的語」の組をタブ区切り形式で出力せよ．ただし，主語，述語，目的語の定義は以下を参考にせよ．
+- 述語: nsubj関係とdobj関係の子（dependant）を持つ単語  
+- 主語: 述語からnsubj関係にある子（dependent）  
+- 目的語: 述語からdobj関係にある子（dependent）  
+```{r nlp100_knock_58}
+
+# nsubj([主語]) -> [述語] -> dobj([目的語])
+include_nsub_dobj <- coreNLP::getDependency(annotation = anno_obj, type = "collapsed") %>%
+  dplyr::filter(stringr::str_detect(string = .$type, pattern = "^nsubj$|^dobj$"))
+
+dplyr::left_join(
+  x = include_nsub_dobj %>%
+    dplyr::select(-dependentIdx, -govIndex, -depIndex) %>%
+    dplyr::rename(g_governor = governor, g_dependent = dependent, g_type = type),
+  y = include_nsub_dobj %>%
+    dplyr::select(-govIndex, -depIndex, -governorIdx) %>%
+    dplyr::rename(d_governor = governor, d_dependent = dependent, d_type = type),
+  by = c("sentence", "g_governor" = "d_governor")
+) %>%
+  dplyr::filter(.$g_type == "nsubj" & .$d_type == "dobj") %>%
+  dplyr::select(sentence, subj = g_dependent, predicate = g_governor, obj = d_dependent) %>%
+  dplyr::as_data_frame()
+
+```
+
+---
+
+## 59. S式の解析
+Stanford Core NLPの句構造解析の結果（S式）を読み込み，文中のすべての名詞句（NP）を表示せよ．入れ子になっている名詞句もすべて表示すること．
+```{r nlp100_knock_59}
+
+# 「ターゲットの"(NP"」から
+# "(NP"の後方で"(NP"時点での括弧数よりも小さい位置(paren_lower_idx) + 「ターゲットの"(NP" - 1」まで
+# を抽出
+parseSExpression <- function (
+  parsed_sentence,
+  target_pattern = "\\(NP"
+) {
+  
+  each_sentence <- stringr::str_split(
+    string = stringr::str_replace_all(
+      string = parsed_sentence, pattern = "\\(ROOT\n|\\(S\n", replacement = ""
+    ),
+    pattern = stringr::boundary(type = "sentence")  
+  ) %>%
+    dplyr::combine() %>%
+    stringr::str_trim(side = "both") %>%
+    stringi::stri_flatten(collapse = " ") %>%
+    stringr::str_split(pattern = " ") %>%
+    dplyr::combine()
+
+  paren_counter <- (
+    each_sentence %>% 
+      stringr::str_count(pattern = "\\(") %>%
+      cumsum
+    ) - 
+    (each_sentence %>% 
+       stringr::str_count(pattern = "\\)") %>%
+       cumsum
+    )
+
+  np_start_idx <- each_sentence %>% 
+    stringr::str_detect(pattern = target_pattern) %>%
+    which
+  
+  index_counter <- 1
+  return(
+    sapply(seq(from = 1, to = length(np_start_idx)), function (index_counter) {
+      target_np_backward_sequence <- seq(
+        from = np_start_idx[index_counter], to = length(paren_counter)
+      )
+      paren_lower_idx <- which.max(
+        paren_counter[np_start_idx[index_counter]] > paren_counter[target_np_backward_sequence]
+      )
+      
+      np_range <- seq(
+        from = np_start_idx[index_counter],
+        to =  paren_lower_idx + (np_start_idx[index_counter] - 1)
+      )
+    
+      return(stringr::str_c(each_sentence[np_range], collapse = " "))
+    })
+  )
+}
+
+SET_PARSE_PHRASE_STRUCTURE_SENTENCE_ID <- 1
+
+
+parseSExpression(
+  parsed_sentence = anno_obj$parse[SET_PARSE_PHRASE_STRUCTURE_SENTENCE_ID],
+  target_pattern = "\\(NP"
+)
+
+```
+
+---
+
+---
+
+# 所感  
+- 言語処理100本ノック(2015年版)の「英語テキストの処理」の章をやってみました。  
+
+- Stanford CoreNLPは言語処理の「全部入りパッケージ」で、今回使わなかった機能（感情表現）もあるのでいろいろと遊べると思います。興味がある方は是非。  
+-- [自然言語処理における「全部入り」パッケージ](http://d.hatena.ne.jp/nokuno/20110919/1316440020)  
+
+- 今回は{coreNLP}にてStanford CoreNLPを呼んでいますが、{StanfordCoreNLP}というパッケージもあります（こちらも{rJava}を使ってします）。    
+-- （インストールは下記のコードにて）  
+-- `install.packages("StanfordCoreNLP", repos = "http://datacube.wu.ac.at", type = "source")`  
+-- 引数reposで指定したサイトでは、言語処理のパッケージ（モデルファイル）が公開されています。  
+-- [http://datacube.wu.ac.at](http://datacube.wu.ac.at)  
+
+- 他にもApache OpenNLPのプロジェクトによる成果を活用した{NLP}や{openNLP}でも英語テキストを処理でき、こちらでも課題を解くのにも挑戦したいです（今回使った{coreNLP}は使い勝手がよくなかったので、{rJava}から自前でStanford CoreNLPを呼び出すのも検討）。  
+
+- 個人的には、問題を解くよりも{rJava}の環境の設定がとても苦労しました。    
+
+---
+
+---
+
+# 実行環境
+```{r footer}
+library(devtools)
+devtools::session_info()
+```
