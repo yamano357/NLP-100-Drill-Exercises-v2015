@@ -1,0 +1,543 @@
+---
+title: "言語処理100本ノック 第7章:データベース"
+author: '@yamano357'
+date: "2015年8月4日"
+output:
+  html_document:
+    theme: readable
+    toc: true
+    toc_depth: 2
+    number_sections: false
+    pandoc_args: [
+      "--from", "markdown+autolink_bare_uris+tex_math_single_backslash-implicit_figures"
+    ]
+    
+---
+
+---
+
+---
+
+前回までのrPubsページ  
+- [第1章:準備運動](http://rpubs.com/yamano357/84965)  
+- [第2章:UNIXコマンドの基礎](http://rpubs.com/yamano357/85313)  
+- [第3章:正規表現](http://rpubs.com/yamano357/86911)  
+- [第4章:形態素解析](http://rpubs.com/yamano357/90200)  
+- [第5章:構文解析](http://rpubs.com/yamano357/91770)  
+- [第6章:構文解析](http://rpubs.com/yamano357/91770)  
+
+前回引き続き、言語処理100本ノック（2015年版）を解きます。  
+
+（下記の『前書き（言語処理100本ノックについて）』は前回と同じです）
+
+---
+
+
+# 概要
+前書き（言語処理100本ノックについて）  
+- 本稿では、東北大学の乾・岡崎研究室で公開されている[言語処理100本ノック（2015年版）](http://www.cl.ecei.tohoku.ac.jp/nlp100/)を、R言語で解いていきます。  
+- [改訂前の言語処理100本ノック](http://www.cl.ecei.tohoku.ac.jp/index.php?NLP%20100%20Drill%20Exercises)も同様に上記研究室のサイトにあります。
+
+- 上記のふたつをご覧いただき、下記に進んでいただけますと幸いです。  
+
+---
+
+前書き（Rに関して）  
+- Rの構文や関数についての説明は一切ありませんので、あらかじめご了承ください。  
+- 本稿では、{base}にある文字列処理ではなく、{stringr}（1.0.0以上）とパイプ処理を極力用いております（{stringi}も処理に応じて活用していきます）。課題によってはパイプ処理でこなすのに向かない状況もありますので、あらかじめご了承ください。  
+- 今回は上記に加え、{rredis}と{mongolite}を用いて、RedisとMongoへのデータベース処理をしていきます。
+
+---
+
+参考ページ  
+
+- {stringr}と{stringi}  
+　[hadley/stringr](https://github.com/hadley/stringr)  
+　[RPubs - このパッケージがすごい2014: stringr](https://rpubs.com/uri-sy/demo_stringr)  
+　[stringiで輝く☆テキストショリスト](http://qiita.com/kohske/items/85d49da04571e9055c44)  
+　[stringr 1.0.0を使ってみる](http://notchained.hatenablog.com/entry/2015/05/01/011703)
+　[{stringr}/{stringi}とbaseの文字列処理について](http://rpubs.com/yamano357/92478)  
+
+- {rredis}  
+　[bwlewis/rredis](https://github.com/bwlewis/rredis)  
+
+- {mongolite}  
+　[jeroenooms/mongolite](https://github.com/jeroenooms/mongolite)  
+　[Getting started with MongoDB in R](https://cran.r-project.org/web/packages/mongolite/vignettes/intro.html)  
+
+- Redisについて  
+　[Redis](http://redis.io)  
+　[redisドキュメント日本語訳](http://redis.shibu.jp)  
+
+- MongoDBについて  
+　[MongoDB](https://www.mongodb.org)  
+　[SQL脳に優しいMongoDBクエリー入門](http://taka512.hatenablog.com/entry/20110220/1298195574)  
+　[MongoDBのインデックス](https://github.com/syokenz/marunouchi-mongodb/tree/master/20141011/fetaro)  
+　[MongoDB Index基本](http://kozy4324.github.io/blog/2012/06/19/mongodb-index/)  
+
+---
+
+ご意見やご指摘など  
+- こうした方が良いやこういう便利な関数がある、間違いがあるなど、ご指摘をお待ちしております。  
+- 下記のいずれかでご連絡・ご報告いただけますと励みになります（なお、Gitに慣れていない人です）。  
+　[Twitter](https://twitter.com/yamano357), [GitHub](https://github.com/yamano357/NLP-100-Drill-Exercises-v2015)  
+
+---
+
+---
+
+# Rコード  
+- 以下、ひたすら解いていきます。  
+
+## パッケージ読み込み
+```{r read_lib, message = FALSE}
+SET_LOAD_LIB <- c("knitr", "readr", "dplyr", "stringr", "stringi", "lazyeval", "jsonlite",  "foreach", "iterators", "pforeach", "rredis", "mongolite", "shiny", "DT")
+sapply(X = SET_LOAD_LIB, FUN = library, character.only = TRUE, logical.return = TRUE)
+knitr::opts_chunk$set(comment = NA)
+```
+
+---
+
+## 事前準備
+
+```
+# {RcppRedis}のページより
+# https://github.com/eddelbuettel/rcppredis
+# On OS X, the header file hiredis.h has been seen to be installed directly in /usr/local/include whereas we generally assume a location within a hiredis directory, eg /usr/local/include/hiredis/hiredis.h. This gist shows a successfull OS X installation via homebrew.
+brew install hiredis
+brew install redis
+To have launchd start redis at login:
+    ln -sfv /usr/local/opt/redis/*.plist ~/Library/LaunchAgents
+Then to load redis now:
+    launchctl load ~/Library/LaunchAgents/homebrew.mxcl.redis.plist
+Or, if you don't want/need launchctl, you can just run:
+    redis-server /usr/local/etc/redis.conf
+```
+
+```
+brew install mongodb
+To have launchd start mongodb at login:
+    ln -sfv /usr/local/opt/mongodb/*.plist ~/Library/LaunchAgents
+Then to load mongodb now:
+    launchctl load ~/Library/LaunchAgents/homebrew.mxcl.mongodb.plist
+Or, if you don't want/need launchctl, you can just run:
+    mongod --config /usr/local/etc/mongod.conf
+```
+
+```{r priprocess, cache = TRUE}
+# 第7章の入力データURL（固定）
+TASK_INPUT_URL <- "http://www.cl.ecei.tohoku.ac.jp/nlp100/data/artist.json.gz"
+
+# Redisの接続確認
+rredis::redisConnect(host = "localhost", nodelay = FALSE)
+rredis::redisInfo()
+rredis::redisClose()
+# rredis::redisFlushDB()
+
+# Mongoの接続確認
+mongo_obj <- mongolite::mongo(collection = "test")
+mongo_obj$info()$server$ok
+rm(mongo_obj)
+
+# ファイル取得 
+download.file(
+  url = TASK_INPUT_URL, destfile = basename(TASK_INPUT_URL), 
+  method = "wget", quiet = FALSE
+)
+if (!file.exists(file =  basename(TASK_INPUT_URL))) {
+  stop("File not found.") 
+}
+
+
+```
+---
+
+## 60. KVSの構築
+Key-Value-Store (KVS) を用い，アーティスト名（name）から活動場所（area）を検索するためのデータベースを構築せよ．
+```{r nlp100_knock_60}
+
+setJSON2Redis <- function (
+  json, key_name
+) {
+  parsed_json <- jsonlite::fromJSON(txt = json)
+  rredis::redisHMSet(
+    key = parsed_json[[key_name]], 
+    values = parsed_json[names(parsed_json) != key_name]
+  )
+  return(parsed_json[[key_name]])
+}
+
+
+SET_KEY_NAME <- "name"
+SET_PARALLE <- list(IS_PARALLEL = TRUE, CORE = 3)
+SET_REDIS_PARAM <- list(
+  HOST = "localhost"
+)
+
+# JSONを一行ずつパースしてRedisに登録（とても遅い）
+rredis::redisConnect(host = SET_REDIS_PARAM$HOST, nodelay = FALSE)
+# redis_insert <- pforeach::pforeach(
+#   json = iterators::ireadLines(con = basename(TASK_INPUT_URL), n = 1),
+#   .c = c,
+#   .export = "setJSON2Redis",
+#   .parallel = SET_PARALLE$IS_PARALLEL, .cores = SET_PARALLE$CORE
+# )({
+#   setJSON2Redis(json = json, key_name = SET_KEY_NAME)
+# })
+
+# 事前に登録したおいたとして、そのデータのキーを取得して利用
+redis_insert <- redisKeys(pattern = "*")
+
+```
+
+---
+
+## 61. KVSの検索
+60で構築したデータベースを用い，特定の（指定された）アーティストの活動場所を取得せよ．
+```{r nlp100_knock_61}
+
+# 特定のフィールドの値を取得して、NULLだったらレコードから除外
+fetchFields <- function(
+  keys, fetch_field
+) {
+  return(
+    dplyr::data_frame(key = keys) %>%
+      dplyr::rowwise(.) %>%
+      dplyr::do(.,
+        dplyr::data_frame(
+          key = .$key,
+          field = list(
+            rredis::redisHGet(key = .$key, field = SET_FETCH_FIELD)
+          )
+        )
+      ) %>%
+      dplyr::filter(field != "NULL") %>%
+      dplyr::rename_(.dots = setNames(object = "field", nm = SET_FETCH_FIELD))
+  )
+}
+
+SET_FETCH_FIELD <- "area"
+SET_SEARCH_KEY_NUM <- 100000
+
+artist_area <- fetchFields(
+  keys = redis_insert[seq(from = 1, to = SET_SEARCH_KEY_NUM)], fetch_field = SET_FETCH_FIELD
+) %>%
+  dplyr::mutate(area = area[[1]]) %>%
+  print
+
+```
+
+---
+
+## 62. KVS内の反復処理
+60で構築したデータベースを用い，活動場所が「Japan」となっているアーティスト数を求めよ．
+```{r nlp100_knock_62}
+
+SET_QUERY <- "Japan"
+
+
+artist_area %>%
+  dplyr::filter(area == SET_QUERY) %>%
+  dplyr::group_by(area) %>%
+  dplyr::summarize(count = n())
+
+```
+
+---
+
+## 63. オブジェクトを値に格納したKVS
+KVSを用い，アーティスト名（name）からタグと被タグ数（タグ付けされた回数）のリストを検索するためのデータベースを構築せよ．さらに，ここで構築したデータベースを用い，アーティスト名からタグと被タグ数を検索せよ．
+```{r nlp100_knock_63}
+
+SET_FETCH_FIELD <- "tags"
+
+
+insert_tags <- fetchFields(
+  keys = redis_insert[seq(from = 1, to = SET_SEARCH_KEY_NUM)], fetch_field = SET_FETCH_FIELD
+) %>%
+  dplyr::do(.,
+    dplyr::data_frame(
+      key = .$key,
+      is_insert = rredis::redisHMSet(
+        key = .$key[1], values = .$tags[[1]]
+      )
+    )
+  ) %>%
+  dplyr::filter(is_insert == "OK") %>%
+  dplyr::select(key)
+
+
+artist_tags <- do.call(
+  "rbind", 
+  lapply(X = insert_tags$key, FUN = function (search_key) {
+    return(
+      data.frame(
+        search_key,
+        fetchFields(
+          keys = search_key, fetch_field = SET_FETCH_FIELD
+        )$tag[[1]]
+      )
+    )
+  })
+)
+head(x = artist_tags, n = 10)
+
+redisClose()
+
+```
+
+---
+
+## 64. MongoDBの構築
+アーティスト情報（artist.json.gz）をデータベースに登録せよ．さらに，次のフィールドでインデックスを作成せよ: name, aliases.name, tags.value, rating.value
+```{r nlp100_knock_64}
+
+SET_MONGO_PROF <- list(
+  DB_NAME = "nlp_exercise", TABLE_NAME = "artist",
+  INDEX_NAMES = c("name", "aliases.name", "tags.value", "rating.value"),
+  PAGE_SIZE = 100000
+)
+
+
+mongo_obj <- mongolite::mongo(
+  collection = SET_MONGO_PROF$TABLE_NAME,
+  db = SET_MONGO_PROF$DB_NAME,
+  verbose = FALSE
+)
+# mongo_obj$drop()
+
+
+# ストリーミングでパースして得たデータフレームをまとめて登録
+jsonlite::stream_in(
+  con = gzfile(
+    description = basename(TASK_INPUT_URL),
+    open = "rb", encoding = "UTF-8"
+  ), 
+  handler = function(df){
+    mongo_obj$insert(data = df, pagesize = SET_MONGO_PROF$PAGE_SIZE)
+  },
+  pagesize = SET_MONGO_PROF$PAGE_SIZE,
+  verbose = FALSE
+)
+
+for (set_index in SET_MONGO_PROF$INDEX_NAMES){
+  mongo_obj$index(add = set_index)
+}
+
+# レコード数
+mongo_obj$count()
+
+```
+
+---
+
+## 65. MongoDBの検索
+MongoDBのインタラクティブシェルを用いて，"Queen"というアーティストに関する情報を取得せよ．さらに，これと同様の処理を行うプログラムを実装せよ．
+```{r nlp100_knock_65}
+
+SET_MONGO_QUERY <- list(
+  QUERY = '{"name" : "Queen"}',
+  FIELD = '{"_id" :  0, "tags" : 0, "gid" : 0}'
+)
+
+
+mongo_obj$find(
+  query = SET_MONGO_QUERY$QUERY,
+  fields = SET_MONGO_QUERY$FIELD,
+  limit = 0 
+)
+
+# インタラクティブシェルは省略
+
+```
+
+---
+
+## 66. 検索件数の取得
+MongoDBのインタラクティブシェルを用いて，活動場所が「Japan」となっているアーティスト数を求めよ．
+```{r nlp100_knock_66}
+
+SET_MONGO_QUERY <- list(
+  QUERY = '{"area":"Japan"}'
+)
+
+
+mongo_obj$count(query = SET_MONGO_QUERY$QUERY)
+
+# インタラクティブシェルは省略
+
+```
+
+---
+
+## 67. 複数のドキュメントの取得
+特定の（指定した）別名を持つアーティストを検索せよ．
+```{r nlp100_knock_67}
+
+SET_MONGO_QUERY <- list(
+  QUERY = '{"aliases.name" : "Queen"}'
+)
+
+
+mongo_obj$find(query = SET_MONGO_QUERY$QUERY)
+
+```
+
+
+## 68. ソート
+"dance"というタグを付与されたアーティストの中でレーティングの投票数が多いアーティスト・トップ10を求めよ．
+```{r nlp100_knock_68}
+
+SET_MONGO_QUERY <- list(
+  QUERY = '{"tags.value" : "dance"}',
+  FIELD = '{"name":1, "rating.value":1}',
+  SORT = '{"rating.value":-1}'
+)
+
+
+mongo_obj$find(
+  query = SET_MONGO_QUERY$QUERY, 
+  fields = SET_MONGO_QUERY$FIELD,
+  sort = SET_MONGO_QUERY$SORT,
+  limit = 10
+)
+
+```
+
+---
+
+## 69. Webアプリケーションの作成
+ユーザから入力された検索条件に合致するアーティストの情報を表示するWebアプリケーションを作成せよ．アーティスト名，アーティストの別名，タグ等で検索条件を指定し，アーティスト情報のリストをレーティングの高い順などで整列して表示せよ．
+```{r nlp100_knock_69}
+
+# {shiny}で「ui.R」側で「アーティスト名」、「アーティストの別名」、「タグ等」を入力
+# 「server.R」で検索して返す
+ui <- shiny::fluidPage(
+  shiny::navbarPage(
+    title = "NLP-100-Drill-Exercises-v2015",
+    shiny::tabPanel(
+      title = "07-Database",
+      shiny::titlePanel("EX69"),
+      shiny::fixedRow(
+        shiny::fixedRow(
+          shiny::column(
+            width = 3, 
+            shiny::textInput(
+              inputId = "artist_name", label = "アーティスト名", value = "Queen"
+            ),
+            shiny::textInput(
+              inputId = "artist_alias", label = "アーティストの別名", value = "Queen"
+            ),
+            shiny::textInput(
+              inputId = "tag", label = "タグ", value = ""
+            ),
+            shiny::submitButton(text = "検索する")
+          ),
+          shiny::hr(),
+          shiny::fixedRow(
+            shiny::column(
+              width = 10, DT::dataTableOutput(outputId = "artist")
+            )
+          )
+        )
+      )
+    )
+  )
+)
+
+server <- function(input, output) {
+  
+  reactQuery <- shiny::reactive({
+    return (
+      data.frame(
+        name = input$artist_name,
+        aliases.name = input$artist_alias,
+        tags.value = input$tag,
+        stringsAsFactors = FALSE
+      )
+    )
+  })
+  
+  output$artist <- DT::renderDataTable({
+    
+    search_query <- reactQuery()
+    query_json <- jsonlite::toJSON(
+      x = search_query[, sapply(X = search_query, FUN = stringr::str_length) > 0, drop = FALSE]
+    )
+    query_json <- stringr::str_sub(
+      string = query_json,
+      start = 2, end = stringr::str_length(string = query_json) - 1
+    )
+
+    search_res <- mongo_obj$find(
+      query = query_json, 
+      fields = '{"name":1, "aliases.name":1, "area":1, "tags.value":1, "rating.value":1}',
+      sort = '{"rating.value" : -1}'
+    )
+    
+    if (length(search_res$aliases) == 0) {
+      search_res$aliases <- NA
+    }
+    if (length(search_res$rating) == 0) {
+      search_res$rating <- NA
+    }
+    if (length(search_res$tags) == 0) {
+      search_res$tags <- NA
+    }
+    
+    to_table <- search_res[, -1, drop = FALSE] %>% 
+      dplyr::rowwise(.) %>%
+      dplyr::mutate(
+        aliases = stringr::str_c(unlist(.$aliases), collapse = ","),
+        tags = stringr::str_c(unlist(.$tags), collapse = ","),
+        rating = stringr::str_c(unlist(.$rating), collapse = ",")
+      ) %>% data.frame(., stringsAsFactors = FALSE)  
+    return(to_table)
+  })
+}
+
+# ShinyAppの起動
+# RPubs上ではインタラクティブドキュメントが非対応なので、できないのでコメントアウト
+# shiny::shinyApp(ui = ui, server = server)
+
+```
+
+---
+
+---
+
+# 所感  
+- 言語処理100本ノック(2015年版)のデータベースの章をやってみました。  
+
+- Rは文字列のような可変長データを扱うのに適したデータ構造でないので、MongoDBのようなドキュメント指向型データベースと組み合わせるのが良さそうではないか、と思いました。  
+
+- Redisに関して{rredis}を使いましたが、他にも{RcppRedis}もあります。low-levelな関数群ですので、Redisのコマンドに慣れている方はこちらが使いやすいと思います。  
+-- {RcppRedis}  
+　[eddelbuettel/rcppredis](https://github.com/eddelbuettel/rcppredis)  
+
+- MongoDBに関して{mongolite}を使いましたが、他にも{rmongodb}や{RMongo}があります。他に触ってみるなら、{rmongodb}がlow-levelな関数とそれらをラップする関数群が適度に揃っており、ちょうどいいかもしません。  
+-- {rmongodb}  
+  [Introduction to the rmongodb Package](https://cran.r-project.org/web/packages/rmongodb/vignettes/rmongodb_introduction.html)  
+　[rmongodb Cheat Sheet](https://cran.r-project.org/web/packages/rmongodb/vignettes/rmongodb_cheat_sheet.pdf)  
+　[RからMongoDBに格納されたデータを扱う](http://qiita.com/sqrtxx/items/11977b74614772c3e7f0)  
+-- {RMongo}  
+　[tc/RMongo](https://github.com/tc/RMongo)  
+　[RでMongoでデータフレーム](http://d.hatena.ne.jp/mizchi/20110416/1302945018)
+
+- {rmongodb}と{RMongo}について  
+　[RからMongoDBにアクセスする2つのライブラリ](http://d.sunnyone.org/2014/12/rmongodb2.html)  
+　[R and MongoDB](http://rpubs.com/schmidb/10275)  
+
+- Redisへのデータの挿入に時間がかかってしまっているので、もう少し工夫ができたと思います（Redisは一行ずつ処理しているのに対して、Mongoへの書き込みは複数行を同時にしている）。  
+
+- 個人的には、もう少しRに寄った処理がしたかったです。  
+
+---
+
+---
+
+# 実行環境
+```{r footer}
+library(devtools)
+devtools::session_info()
+```
