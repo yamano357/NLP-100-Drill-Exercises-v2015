@@ -1,0 +1,656 @@
+---
+title: "言語処理100本ノック 第8章:機械学習"
+author: '@yamano357'
+date: "2015年8月13日"
+output:
+  html_document:
+    theme: readable
+    toc: true
+    toc_depth: 2
+    number_sections: false
+    pandoc_args: [
+      "--from", "markdown+autolink_bare_uris+tex_math_single_backslash-implicit_figures"
+    ]
+    
+---
+
+---
+
+---
+
+前回までのrPubsページ  
+- [第1章:準備運動](http://rpubs.com/yamano357/84965)  
+- [第2章:UNIXコマンドの基礎](http://rpubs.com/yamano357/85313)  
+- [第3章:正規表現](http://rpubs.com/yamano357/86911)  
+- [第4章:形態素解析](http://rpubs.com/yamano357/90200)  
+- [第5章:構文解析](http://rpubs.com/yamano357/91770)  
+- [第6章:英語テキストの処理](http://rpubs.com/yamano357/94986)  
+- [第7章:データベース](http://rpubs.com/yamano357/98624)  
+
+前回引き続き、言語処理100本ノック（2015年版）を解きます。  
+
+（下記の『前書き（言語処理100本ノックについて）』は前回と同じです）
+
+---
+
+
+# 概要
+前書き（言語処理100本ノックについて）  
+- 本稿では、東北大学の乾・岡崎研究室で公開されている[言語処理100本ノック（2015年版）](http://www.cl.ecei.tohoku.ac.jp/nlp100/)を、R言語で解いていきます。  
+- [改訂前の言語処理100本ノック](http://www.cl.ecei.tohoku.ac.jp/index.php?NLP%20100%20Drill%20Exercises)も同様に上記研究室のサイトにあります。
+
+- 上記のふたつをご覧いただき、下記に進んでいただけますと幸いです。  
+
+---
+
+前書き（Rに関して）  
+- Rの構文や関数についての説明は一切ありませんので、あらかじめご了承ください。  
+- 本稿では、{base}にある文字列処理ではなく、{stringr}（1.0.0以上）とパイプ処理を極力用いております（{stringi}も処理に応じて活用していきます）。課題によってはパイプ処理でこなすのに向かない状況もありますので、あらかじめご了承ください。  
+- 今回は上記に加え、{FeatureHashing}と{xgboost}を用いてロジスティック回帰モデルを構築していきます。
+
+---
+
+参考ページ  
+
+- {stringr}と{stringi}  
+　[hadley/stringr](https://github.com/hadley/stringr)  
+　[RPubs - このパッケージがすごい2014: stringr](https://rpubs.com/uri-sy/demo_stringr)  
+　[stringiで輝く☆テキストショリスト](http://qiita.com/kohske/items/85d49da04571e9055c44)  
+　[stringr 1.0.0を使ってみる](http://notchained.hatenablog.com/entry/2015/05/01/011703)
+
+- {readr}  
+　[hadley/readr](https://github.com/hadley/readr)  
+　[readr とは？](http://oku.edu.mie-u.ac.jp/~okumura/stat/readr.html)  
+　[readr 0.0.0.9000を使ってみる](http://notchained.hatenablog.com/entry/2015/03/22/150827)  
+
+- {testthat}  
+　[hadley/testthat](https://github.com/hadley/testthat)  
+　[testthat: Get Started with Testing](http://journal.r-project.org/archive/2011-1/RJournal_2011-1_Wickham.pdf)  
+　[testthatメモ](http://d.hatena.ne.jp/dichika/20140308/p1)  
+　[Rパッケージ作成ハドリー風: devtools, roxygen2, testthatを添えて](http://www.slideshare.net/kaz_yos/r-devtools-roxygen2)　
+
+- {caret}  
+　[The caret Package](http://caret.r-forge.r-project.org)  
+　[機械学習を用いた予測モデル構築・評価](http://www.slideshare.net/sfchaos/ss-33703018)  
+
+- {FeatureHashing}  
+　[wush978/FeatureHashing](https://github.com/wush978/FeatureHashing)  
+　[Rによる特徴抽出](http://www.slideshare.net/Keiku322/r48rtokyor)  
+　[Feature Hashing (a.k.a. The Hashing Trick) With R](http://amunategui.github.io/feature-hashing/)
+　
+- {xgboost}  
+　[dmlc/xgboost](https://github.com/dmlc/xgboost/tree/master/R-package)  
+　[Gradient Boosting Decision Treeでの特徴選択 in R](http://www.housecat442.com/?p=480)  
+　[勾配ブースティングについてざっくりと説明する](http://smrmkt.hatenablog.jp/entry/2015/04/28/210039)  
+　[xgboostとgbmのパラメータ対応一覧をつくる](http://d.hatena.ne.jp/dichika/20150203/p1)  
+　[Xgboost のR における具体例 (クラス分類)](http://puyokw.hatenablog.com/entry/2015/04/29/000557)  
+
+---
+
+ご意見やご指摘など  
+- こうした方が良いやこういう便利な関数がある、間違いがあるなど、ご指摘をお待ちしております。  
+- 下記のいずれかでご連絡・ご報告いただけますと励みになります（なお、Gitに慣れていない人です）。  
+　[Twitter](https://twitter.com/yamano357), [GitHub](https://github.com/yamano357/NLP-100-Drill-Exercises-v2015)  
+
+---
+
+---
+
+# Rコード  
+- 以下、ひたすら解いていきます。  
+
+## パッケージ読み込み
+```{r read_lib, message = FALSE}
+# devtools::install_github("aaboyles/hadleyverse")
+SET_LOAD_LIB <- c("knitr", "hadleyverse", "stringi", "lazyeval", "tm", "testthat", "FeatureHashing", "xgboost", "caret", "ggvis", "plotROC")
+sapply(X = SET_LOAD_LIB, FUN = library, character.only = TRUE, logical.return = TRUE)
+knitr::opts_chunk$set(comment = NA)
+```
+
+---
+
+## 事前準備
+```{r priprocess, cache = TRUE}
+
+# 第1章の入力データURL（固定）
+TASK_INPUT_URL <- "http://www.cs.cornell.edu/people/pabo/movie-review-data/rt-polaritydata.tar.gz"
+
+# ファイル取得 
+download.file(
+  url = TASK_INPUT_URL, destfile = basename(TASK_INPUT_URL), 
+  method = "wget", quiet = FALSE
+)
+if (!file.exists(file =  basename(TASK_INPUT_URL))) {
+  stop("File not found.") 
+}
+
+# 圧縮ファイルの中身の確認と解凍
+(task_files <- untar(tarfile = basename(TASK_INPUT_URL), list = TRUE))
+untar(tarfile = basename(TASK_INPUT_URL), list = FALSE)
+
+```
+---
+
+## 70. データの入手・整形
+文に関する極性分析の正解データを用い，以下の要領で正解データ（sentiment.txt）を作成せよ．  
+ 1. rt-polarity.posの各行の先頭に"+1   "という文字列を追加する（極性ラベル"+1"とスペースに続けて肯定的な文の内容が続く）  
+ 2. rt-polarity.negの各行の先頭に"-1   "という文字列を追加する（極性ラベル"-1"とスペースに続けて否定的な文の内容が続く）  
+ 3. 上述1と2の内容を結合（concatenate）し，行をランダムに並び替える  
+sentiment.txtを作成したら，正例（肯定的な文）の数と負例（否定的な文）の数を確認せよ．
+```{r nlp100_knock_70}
+
+# 課題の1と2の処理
+formattingTaskData <- function (
+  input_file, read_num,
+  add_label, sep_string, sentiment_text_col_name
+) {
+  return(
+    readr::read_lines(
+      file = input_file, n_max = read_num
+    ) %>% 
+      dplyr::data_frame(text = .) %>%
+      dplyr::mutate(sentiment = add_label) %>%
+      dplyr::mutate_(
+        .dots = setNames(
+          object = list(lazyeval::interp(
+            ~ stringr::str_c(cvar1, cvar2, sep = sep_string),
+            cvar1 = as.name("sentiment"),
+            cvar2 = as.name("text")
+          )),
+          nm = sentiment_text_col_name
+        )
+      ) %>%
+      dplyr::select_(.dots = sentiment_text_col_name)
+    )
+}
+
+SET_SENTIMENT_FILE_NAME <- list(
+  INPUT_POSITIVE = "rt-polarity.pos", INPUT_NEGATIVE = "rt-polarity.neg",
+  SEP_STR = " ",
+  COL_NAME = "sentiment_text", 
+  OUTPUT_FILE = "sentiment.txt"
+)
+SET_RAND_SEED <- 71
+
+
+sentiment <- dplyr::bind_rows(
+  formattingTaskData(
+    input_file = stringr::str_subset(
+      string = task_files, pattern = SET_SENTIMENT_FILE_NAME$INPUT_POSITIVE
+    ), read_num = -1,
+    add_label = "+1", sep_string = SET_SENTIMENT_FILE_NAME$SEP_STR,
+    sentiment_text_col_name = SET_SENTIMENT_FILE_NAME$COL_NAME
+  ),
+  formattingTaskData(
+    input_file = stringr::str_subset(
+      string = task_files, pattern = SET_SENTIMENT_FILE_NAME$INPUT_NEGATIVE
+    ), read_num = -1,
+    add_label = "-1", sep_string = SET_SENTIMENT_FILE_NAME$SEP_STR,
+    sentiment_text_col_name = SET_SENTIMENT_FILE_NAME$COL_NAME
+  )
+)
+
+# ランダムで並び替え
+set.seed(seed = SET_RAND_SEED)
+sentiment[[SET_SENTIMENT_FILE_NAME$COL_NAME]] <- sentiment[[SET_SENTIMENT_FILE_NAME$COL_NAME]][sample.int(n = nrow(sentiment), replace = FALSE)]
+
+readr::write_tsv(
+  x = sentiment, path = SET_SENTIMENT_FILE_NAME$OUTPUT_FILE,
+  col_names = FALSE, append = FALSE
+)
+
+
+# 正例の数
+sum(stringr::str_count(string = sentiment[[SET_SENTIMENT_FILE_NAME$COL_NAME]], pattern = "^\\+1"))
+# 負例の数
+sum(stringr::str_count(string = sentiment[[SET_SENTIMENT_FILE_NAME$COL_NAME]], pattern = "^\\-1"))
+
+```
+
+---
+
+## 71. ストップワード
+英語のストップワードのリスト（ストップリスト）を適当に作成せよ．さらに，引数に与えられた単語（文字列）がストップリストに含まれている場合は真，それ以外は偽を返す関数を実装せよ．さらに，その関数に対するテストを記述せよ．
+```{r nlp100_knock_71}
+
+# {tm}で定義されているSMARTのストップワードリストを利用
+# https://en.wikipedia.org/wiki/SMART_Information_Retrieval_System
+isStopWord <- function (
+  chk_word
+){
+  if (mode(chk_word) != "character") {
+    return(logical(length = length(chk_word)))
+  }
+  return(
+    is.element(el = as.vector(chk_word), set = tm::stopwords(kind = "SMART"))
+  )
+}
+
+
+# テスト
+# testthat::describe()による記述でも可
+
+# ストップワードリストにある単語を入力したときにTRUEを返すか
+# ストップワードリストにない単語を入力したときにFALSEを返すか
+testthat::test_that(
+  desc = "isStopWord()が正しい挙動をしているかをテスト", 
+  code = {
+    testthat::expect_true(
+      object = all(isStopWord(chk_word = tm::stopwords(kind = "SMART")))
+    )
+    testthat::expect_false(
+      object = all(isStopWord(
+        chk_word = dplyr::setdiff(
+          x = tm::stopwords(kind = "en"), y = tm::stopwords(kind = "SMART")
+        )
+      ))
+    )
+  }
+)
+
+# modeが"character"でないときはFALSEの論理ベクトルを返す
+# 文字列行列ではベクトル化して処理
+testthat::test_that(
+  desc = "単語や文字列以外の入力時の対応をテスト", 
+  code = {
+    testthat::expect_false(
+      object = all(isStopWord(chk_word = sample.int(n = 10, size = 10, replace = FALSE)))
+    )
+    testthat::expect_false(
+      object = all(isStopWord(chk_word = as.factor(tm::stopwords(kind = "SMART"))))
+    )
+    testthat::expect_false(
+      object = all(isStopWord(
+        chk_word = data.frame(word = tm::stopwords(kind = "SMART"), stringsAsFactors = FALSE)
+      ))
+    )
+    testthat::expect_true(
+      object = all(isStopWord(
+        chk_word = data.frame(word = tm::stopwords(kind = "SMART"), stringsAsFactors = FALSE)$word
+      ))
+    )
+    testthat::expect_true(
+      object = all(isStopWord(chk_word = as.matrix(tm::stopwords(kind = "SMART"))))
+    )
+  }
+)
+
+```
+
+---
+
+## 72. 素性抽出
+極性分析に有用そうな素性を各自で設計し，学習データから素性を抽出せよ．素性としては，レビューからストップワードを除去し，各単語をステミング処理したものが最低限のベースラインとなるであろう．
+```{r nlp100_knock_72}
+
+SET_FEATURE_HASHING <- list(
+  SIZE = 2 ^ 8,
+  FORMULA = ~ split(x = text, delim = " ", type = "count")
+)
+
+
+# ラベル付きのテキストを、"label"と"text"のカラムに分ける
+sentiment_features <- do.call(
+  what = "rbind",
+  args = stringr::str_split(
+    string = sentiment$sentiment_text, pattern = "[:blank:]", n = 2
+  )
+) %>%
+  data.frame(., stringsAsFactors = FALSE) %>%
+  dplyr::rename_(
+    .dots = setNames(
+      object = stringr::str_c("X", c(1, 2)), 
+      nm = c("label", "text")
+    )
+  )
+
+# Feature Hashing
+features <- FeatureHashing::hashed.model.matrix(
+  data = sentiment_features[, "text", drop = FALSE],
+  hash.size = SET_FEATURE_HASHING$SIZE,
+  formula = SET_FEATURE_HASHING$FORMULA,
+  is.dgCMatrix = TRUE, create.mapping = TRUE
+)
+
+# ハッシュのマッピング
+mapping <- FeatureHashing::hash.mapping(matrix = features)
+names(mapping) <- stringr::str_replace(
+  string = names(mapping), pattern = "^text", replacement = ""
+)
+
+```
+
+---
+
+## 73. 学習
+72で抽出した素性を用いて，ロジスティック回帰モデルを学習せよ．
+```{r nlp100_knock_73}
+
+# Feature Hashingした素性
+# GLMによるロジスティック回帰（ベースライン）とGradient Boostingを比較
+
+SET_MODEL_PARAM <- list(
+  MAX_DEPTH = 7, ETA = 0.1, LAMBDA = 0.5,
+  NROUNDS = 100, SUBSAMPLE = 0.5, COLSAMPLE_BYTREE = 0.5
+)
+
+
+# "+1" => 1, "-1" => 0
+logic_label <- ifelse(test = as.integer(sentiment_features$label) > 0, yes = 1, no = 0)
+
+# GLM
+glm_mdl <- glm(
+  formula = y ~ .,
+  data = data.frame(y = logic_label, as.data.frame(as.matrix(features))),
+  family = binomial(link = "logit")
+)
+
+# Gradient Boosting
+gb_mdl <- xgboost::xgboost(
+  data = features, label = logic_label,
+  objective = "binary:logistic",  eval_metric = "logloss",
+  max_depth = SET_MODEL_PARAM$MAX_DEPTH,
+  eta = SET_MODEL_PARAM$ETA, lambda = SET_MODEL_PARAM$LAMBDA,
+  nrounds = SET_MODEL_PARAM$NROUNDS, 
+  subsample = SET_MODEL_PARAM$SUBSAMPLE, colsample_bytree = SET_MODEL_PARAM$COLSAMPLE_BYTREE,
+  nthread = 3,
+  verbose = FALSE
+)
+
+```
+
+---
+
+## 74. 予測
+73で学習したロジスティック回帰モデルを用い，与えられた文の極性ラベル（正例なら"+1"，負例なら"-1"）と，その予測確率を計算するプログラムを実装せよ．
+```{r nlp100_knock_74}
+
+# _probが予測確率
+# _predict_labelが予測ラベル
+predict_prob_label <- dplyr::data_frame(
+  glm_predict_prob = predict(
+    object = glm_mdl,
+    newdata = data.frame(y = logic_label, as.data.frame(as.matrix(features)))[, -1],
+    type = "response"
+  ),
+  gb_predict_prob = predict(object = gb_mdl, newdata = features)
+) %>%
+  dplyr::mutate(
+    glm_predict_label = ifelse(test = glm_predict_prob >= 0.5, yes = "+1", no = "-1"),
+    gb_predict_label = ifelse(test = gb_predict_prob >= 0.5, yes = "+1", no = "-1"),
+    true_label = sentiment_features$label
+  ) %>%
+  print
+
+```
+
+---
+
+## 75. 素性の重み
+73で学習したロジスティック回帰モデルの中で，重みの高い素性トップ10と，重みの低い素性トップ10を確認せよ．
+```{r nlp100_knock_75}
+
+# ベースライン
+sort(x = glm_mdl$coefficients, decreasing = TRUE)[1:10]
+sort(x = glm_mdl$coefficients, decreasing = FALSE)[1:10]
+
+
+# {xgboost}の場合
+gb_feature_importance <- xgboost::xgb.importance(model = gb_mdl)
+gb_feature_gain <- dplyr::left_join(
+  x = dplyr::data_frame(
+    feature = mapping,
+    word = names(mapping)
+  ),
+  y = dplyr::data_frame(
+    feature = as.integer(gb_feature_importance$Feature),
+    gain = gb_feature_importance$Gain
+  ),
+  by = c("feature")
+)
+
+# gainの値が最大のfeatureに属する単語
+gb_feature_gain %>%
+  dplyr::filter(gain == max(gain, na.rm = TRUE)) %>%
+  dplyr::select(word) %>%
+  dplyr::mutate(word = stringi::stri_enc_toascii(str = word))
+
+# gainの値が最小のfeatureに属する単語
+gb_feature_gain %>%
+  dplyr::filter(gain == min(gain, na.rm = TRUE)) %>%
+  dplyr::select(word) %>%
+  dplyr::mutate(word = stringi::stri_enc_toascii(str = word))
+
+
+# Plot a boosted tree model
+xgboost::xgb.plot.tree(model = gb_mdl, n_first_tree = 1)
+
+```
+
+---
+
+## 76. ラベル付け
+学習データに対してロジスティック回帰モデルを適用し，正解のラベル，予測されたラベル，予測確率をタブ区切り形式で出力せよ．
+```{r nlp100_knock_76}
+
+SET_SEP <- "\t"
+
+# Gradient Boostingのみ
+# 正解ラベル(label), 予測されたラベル(predict), 予測確率(prob)
+logistic_result <- dplyr::data_frame(
+  label= sentiment_features$label,
+  predict = predict_prob_label$gb_predict_label,
+  prob = predict_prob_label$gb_predict_prob
+)
+logistic_result %>%
+  dplyr::mutate(result = stringr::str_c(.$label, .$predict, .$prob, sep = SET_SEP)) %>%
+  dplyr::select(result) 
+
+```
+
+---
+
+## 77. 正解率の計測
+76の出力を受け取り，予測の正解率，正例に関する適合率，再現率，F1スコアを求めるプログラムを作成せよ．
+```{r nlp100_knock_77}
+
+# confusion matrixから計算
+# http://ibisforest.org/index.php?F値
+calcFMeasures <- function (
+  confusion_matrix, positve = "+1"
+) {
+
+  # 正解率(accuracy)
+  accuracy <- sum(diag(x = confusion_matrix)) / sum(confusion_matrix)
+
+  tp <- confusion_matrix[
+    rownames(confusion_matrix) == positve, colnames(confusion_matrix) == positve
+  ]
+  
+  # 適合率(precision), 再現率(recall), F1スコア(f_measure)
+  precision <- tp / sum(confusion_matrix[rownames(confusion_matrix) == positve, ])
+  recall <- tp / sum(confusion_matrix[, colnames(confusion_matrix) == positve])
+  f_measure <- (2 * precision * recall) / (precision + recall)
+  
+  return(
+    dplyr::data_frame(
+      accuracy,
+      precision, recall,
+      f_measure
+    )
+  )
+}
+
+
+train_train <- dplyr::bind_rows(
+  # Feature Hashing + GLM
+  calcFMeasures(
+    confusion_matrix = table(predict_prob_label$glm_predict_label, logistic_result$label)
+  ) %>%
+    dplyr::mutate(method = "FH_GLM"),
+  # Feature Hashing + Boosting tree
+  calcFMeasures(
+    confusion_matrix = table(predict_prob_label$gb_predict_label, logistic_result$label)
+  ) %>%
+    dplyr::mutate(method = "FH_BT")
+) %>%
+  print
+
+```
+
+
+## 78. 5分割交差検定
+76-77の実験では，学習に用いた事例を評価にも用いたため，正当な評価とは言えない．すなわち，分類器が訓練事例を丸暗記する際の性能を評価しており，モデルの汎化性能を測定していない．そこで，5分割交差検定により，極性分類の正解率，適合率，再現率，F1スコアを求めよ．
+```{r nlp100_knock_78}
+
+# Feature Hashing + GLM + 5-fold CV
+glm_cv <- caret::train(
+  y = logic_label,
+  x = data.frame(as.matrix(features)),
+  family = binomial(link = "logit"),
+  method = "glm", 
+  trControl = caret::trainControl(method = "cv", number = 5, savePred = TRUE)
+)
+
+# Feature Hashing + Boosting tree + 5-fold CV
+gb_mdl_cv <- xgboost::xgb.cv(
+  data = features, label = logic_label,
+  objective = "binary:logistic",  eval_metric = "logloss",
+  max_depth = SET_MODEL_PARAM$MAX_DEPTH,
+  eta = SET_MODEL_PARAM$ETA, lambda = SET_MODEL_PARAM$LAMBDA,
+  nrounds = SET_MODEL_PARAM$NROUNDS, 
+  subsample = SET_MODEL_PARAM$SUBSAMPLE, colsample_bytree = SET_MODEL_PARAM$COLSAMPLE_BYTREE,
+  nthread = 3,
+  verbose = FALSE,
+  nfold = 5, prediction = TRUE
+)
+
+
+# 77.の結果と合わせて表示
+dplyr::bind_rows(
+  train_train %>%
+    dplyr::mutate(type = "train"),
+  dplyr::bind_rows(
+    # Feature Hashing + GLM
+    calcFMeasures(
+      confusion_matrix = table(
+        ifelse(test = glm_cv$pred$pred >= 0.5, yes = "+1", no = "-1"),
+        logistic_result$label
+      )
+    ) %>%
+      dplyr::mutate(method = "FH_GLM"),
+    # Feature Hashing + Boosting tree
+    calcFMeasures(
+      confusion_matrix = table(
+        ifelse(test = gb_mdl_cv$pred >= 0.5, yes = "+1", no = "-1"),
+        logistic_result$label
+      )
+    ) %>%
+      dplyr::mutate(method = "FH_BT")
+  ) %>%
+    dplyr::mutate(type = "test")
+)
+
+```
+
+---
+
+## 79. 適合率-再現率グラフの描画
+ロジスティック回帰モデルの分類の閾値を変化させることで，適合率-再現率グラフを描画せよ．
+```{r nlp100_knock_79, fig.width = 9}
+
+evalChangeThreshold <- function (
+  change_threshold,
+  true_label, predict_prob_res
+) {
+  return(
+    do.call(
+      what = "rbind",
+      args = lapply(
+        X = change_threshold,
+        FUN = function (threshold) {
+          return(
+            data.frame(
+              calcFMeasures(
+                confusion_matrix = table(
+                  true_label,
+                  ifelse(test = predict_prob_res >= threshold, yes = "+1", no = "-1")
+                )
+              ),
+              stringsAsFactors = FALSE
+            )
+          )
+        }
+      )
+    ) %>%
+      dplyr::mutate(threshold = change_threshold)
+  )
+}
+
+# 適合率-再現率グラフ
+dplyr::bind_rows(
+  evalChangeThreshold(
+    change_threshold = seq(from = 0.1, to = 0.9, by = 0.1),
+    true_label = logistic_result$label,
+    predict_prob_res = glm_cv$pred$pred
+  ) %>%
+    dplyr::mutate(method = "FH_GLM"),
+  evalChangeThreshold(
+    change_threshold = seq(from = 0.1, to = 0.9, by = 0.1),
+    true_label = logistic_result$label,
+    predict_prob_res = gb_mdl_cv$pred
+  ) %>%
+    dplyr::mutate(method = "FH_BT")
+) %>%
+  ggvis::ggvis(x = ~ precision, y = ~ recall, stroke = ~ method) %>%
+  ggvis::layer_lines()
+
+```
+
+```{r nlp100_knock_79_roc, fig.width = 9}
+
+# ROC曲線を合わせて書いてみる
+# http://qiita.com/kenmatsu4/items/550b38f4fa31e9af6f4f
+# http://blog.yhathq.com/posts/roc-curves.html
+roc <- plotROC::calculate_multi_roc(
+  data = predict_prob_label %>%
+    dplyr::select(-glm_predict_label, -gb_predict_label) %>%
+    dplyr::mutate(true_label = ifelse(test = as.integer(true_label) > 0, yes = 1, no = 0)) %>%
+    as.data.frame(),
+  M_string = c("glm_predict_prob", "gb_predict_prob"),
+  D_string = c("true_label")
+)
+(roc_plot <- plot_journal_roc(
+  ggroc_p = plotROC::multi_ggroc(datalist = roc, label = c("FH_GLM", "FH_FB"))
+  )
+)
+
+# インタラクティブなグラフを作成できるらしい（下記リンク）が、うまくいかなかったのでコメントアウト
+# http://sachsmc.github.io/plotROC/
+# cat(plotROC::export_interactive_roc(ggroc_p = roc_plot))
+
+```
+---
+
+---
+
+# 所感  
+- 言語処理100本ノック(2015年版)の機械学習の章をやってみました。  
+
+- 今回は素性の設計を細かくせず、Feature Hashingだけを行いましたので、素性の設計にこだわると（課題文にあるように、ストップワードの除去やステミング処理など。{tm}のtermFreqを活用すると楽かもしません）もう少し精度がよくなるかもしれません。
+
+- また、ロジスティック回帰の学習には{xgboost}を用いましたが、{caret}を使うといろいろな手法を手軽に試せてオススメです（今回はサボったパラメータチューニングもしやすい）。このあたりの話をもう少し知りたい方は、Useful Rシリーズの『データ分析プロセス』を読んでおくとよいかと思われます。  
+　[データ分析プロセス](http://www.amazon.co.jp/dp/toc/4320123654/)  
+
+-  個人的には、テストを積極的に書いていきたいので、下記を参考にしたいです。  
+　[ソフトウェアテスト基本テクニック](http://gihyo.jp/dev/serial/01/tech_station)  
+
+---
+
+---
+
+# 実行環境
+```{r footer}
+library(devtools)
+devtools::session_info()
+```
