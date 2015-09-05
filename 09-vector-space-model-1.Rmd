@@ -1,0 +1,720 @@
+---
+title: "言語処理100本ノック 第9章:ベクトル空間法 (I)"
+author: '@yamano357'
+date: "2015年9月4日"
+output:
+  html_document:
+    theme: readable
+    toc: true
+    toc_depth: 2
+    number_sections: false
+    pandoc_args: [
+      "--from", "markdown+autolink_bare_uris+tex_math_single_backslash-implicit_figures"
+    ]
+    
+---
+
+
+---
+
+---
+
+前回までのrPubsページ  
+- [第1章:準備運動](http://rpubs.com/yamano357/84965)  
+- [第2章:UNIXコマンドの基礎](http://rpubs.com/yamano357/85313)  
+- [第3章:正規表現](http://rpubs.com/yamano357/86911)  
+- [第4章:形態素解析](http://rpubs.com/yamano357/90200)  
+- [第5章:構文解析](http://rpubs.com/yamano357/91770)  
+- [第6章:英語テキストの処理](http://rpubs.com/yamano357/94986)  
+- [第7章:データベース](http://rpubs.com/yamano357/98624)  
+- [第8章:機械学習](http://rpubs.com/yamano357/100016)  
+
+前回引き続き、言語処理100本ノック（2015年版）を解きます。  
+
+（下記の『前書き（言語処理100本ノックについて）』は前回と同じです）
+
+---
+
+
+# 概要
+前書き（言語処理100本ノックについて）  
+- 本稿では、東北大学の乾・岡崎研究室で公開されている[言語処理100本ノック（2015年版）](http://www.cl.ecei.tohoku.ac.jp/nlp100/)を、R言語で解いていきます。  
+- [改訂前の言語処理100本ノック](http://www.cl.ecei.tohoku.ac.jp/index.php?NLP%20100%20Drill%20Exercises)も同様に上記研究室のサイトにあります。
+
+- 上記のふたつをご覧いただき、下記に進んでいただけますと幸いです。  
+
+---
+
+前書き（Rに関して）  
+- Rの構文や関数についての説明は一切ありませんので、あらかじめご了承ください。  
+- 本稿では、{base}にある文字列処理ではなく、{stringr}（1.0.0以上）とパイプ処理を極力用いております（{stringi}も処理に応じて活用していきます）。課題によってはパイプ処理でこなすのに向かない状況もありますので、あらかじめご了承ください。  
+- 今回は上記に加え、{pforeach}を用いて入力や集計を並列処理し、{Matrix}で疎行列を処理していきます。
+
+---
+
+参考ページ  
+
+- {stringr}と{stringi}  
+　[hadley/stringr](https://github.com/hadley/stringr)  
+　[RPubs - このパッケージがすごい2014: stringr](https://rpubs.com/uri-sy/demo_stringr)  
+　[stringiで輝く☆テキストショリスト](http://qiita.com/kohske/items/85d49da04571e9055c44)  
+　[stringr 1.0.0を使ってみる](http://notchained.hatenablog.com/entry/2015/05/01/011703)
+
+- {readr}  
+　[hadley/readr](https://github.com/hadley/readr)  
+　[readr とは？](http://oku.edu.mie-u.ac.jp/~okumura/stat/readr.html)  
+　[readr 0.0.0.9000を使ってみる](http://notchained.hatenablog.com/entry/2015/03/22/150827)  
+
+- {iterators}と{foreach}  
+　[Using The iterators Package](https://cran.r-project.org/web/packages/iterators/vignettes/iterators.pdf)  
+　[Writing Custom Iterators](https://cran.r-project.org/web/packages/iterators/vignettes/writing.pdf)  
+　[Using The foreach Package](https://cran.r-project.org/web/packages/foreach/vignettes/foreach.pdf)  
+　[Looping and iterators, part I](http://www3.nd.edu/~steve/computing_with_data/21_looping/looping_iterators_part1.html)  
+　[foreachパッケージで並列化する時、現在の"環境"にない変数・関数は、明示的に.export引数にて指定しなければならない](http://d.hatena.ne.jp/teramonagi/20140920/1411195147)  
+　[forを捨てよ、foreachを書こう](http://www.slideshare.net/hoxo_m/for-foreach)  
+
+- {pforeach}  
+　[hoxo-m/pforeach](https://github.com/hoxo-m/pforeach)  
+　[Rで超簡単に並列処理を書けるパッケージpforeach を作った](http://d.hatena.ne.jp/hoxo_m/20141222/p1)  
+　[Rで超簡単に並列処理を書けるパッケージpforeach](http://www.slideshare.net/hoxo_m/pforeach)  
+
+- {Matrix}  
+　[Introduction to the Matrix package](https://cran.r-project.org/web/packages/Matrix/vignettes/Introduction.pdf)  
+　[Sparse Model Matrices](https://cran.r-project.org/web/packages/Matrix/vignettes/sparseModels.pdf)  
+　[疎な行列をRで扱う -R tips-](http://tomoshige-n.hatenablog.com/entry/2014/08/05/051019)  
+　[Rで疎な多次元配列を扱う（Matrix,slamパッケージ）](http://rishida.hatenablog.com/entry/2013/07/13/171920)  
+　[Rによる文書分類入門](http://www.slideshare.net/abicky/r-22325351)  
+
+---
+
+ご意見やご指摘など  
+- こうした方が良いやこういう便利な関数がある、間違いがあるなど、ご指摘をお待ちしております。  
+- 下記のいずれかでご連絡・ご報告いただけますと励みになります（なお、Gitに慣れていない人です）。  
+　[Twitter](https://twitter.com/yamano357), [GitHub](https://github.com/yamano357/NLP-100-Drill-Exercises-v2015)  
+
+---
+
+---
+
+# Rコード  
+- 以下、ひたすら解いていきます。  
+
+## パッケージ読み込み
+```{r read_lib, message = FALSE}
+# devtools::install_github("aaboyles/hadleyverse")
+SET_LOAD_LIB <- c("knitr", "hadleyverse", "stringi", "lazyeval", "pforeach", "countrycode", "Matrix", "irlba", "Rcpp", "inline")
+sapply(X = SET_LOAD_LIB, FUN = library, character.only = TRUE, logical.return = TRUE)
+load_packages <- as.character(na.omit(object = stringr::str_match(string = search(), pattern = "^package:(.*)")[, 2]))
+knitr::opts_chunk$set(comment = NA)
+
+```
+
+---
+
+## 事前準備
+```{r priprocess, cache = TRUE}
+# 第9章の入力データURL（固定）
+# TASK_INPUT_URL <- "http://www.cl.ecei.tohoku.ac.jp/nlp100/data/enwiki-20150112-400-r10-105752.txt.bz2"
+TASK_INPUT_URL <- "http://www.cl.ecei.tohoku.ac.jp/nlp100/data/enwiki-20150112-400-r100-10576.txt.bz2"
+
+
+# ファイル取得 
+download.file(
+  url = TASK_INPUT_URL, destfile = basename(TASK_INPUT_URL), 
+  method = "wget", quiet = FALSE
+)
+if (!file.exists(file =  basename(TASK_INPUT_URL))) {
+  stop("File not found.")   
+}
+
+```
+---
+
+## 80. コーパスの整形
+文を単語列に変換する最も単純な方法は，空白文字で単語に区切ることである．   ただ，この方法では文末のピリオドや括弧などの記号が単語に含まれてしまう．   そこで，コーパスの各行のテキストを空白文字でトークンのリストに分割した後，各トークンに以下の処理を施し，単語から記号を除去せよ．  
+- トークンの先頭と末尾に出現する次の文字を削除: `.,!?;:()[]'"`  
+- 空文字列となったトークンは削除  
+以上の処理を適用した後，トークンをスペースで連結してファイルに保存せよ．
+```{r nlp100_knock_80, cache = TRUE}
+
+tokenizeSentence <- function (
+  str, pattern_list
+) {
+
+  return(
+    dplyr::data_frame(
+      text =  stringr::str_replace_all(
+        string = stringr::str_split(string = str, pattern = pattern_list$SPLIT_SEP) %>%
+          dplyr::combine(), 
+        pattern = stringr::str_c(
+          c(
+            stringr::str_c("^", pattern_list$DELETE_CHAR),
+            stringr::str_c(pattern_list$DELETE_CHAR, "$")
+          ),
+          collapse = "|"
+        ),
+        replacement = ""
+      )
+    ) %>%
+      dplyr::filter(.$text != pattern_list$IS_NULL) %>%
+      dplyr::combine(.) %>%
+      unlist %>%
+      stringr::str_c(collapse = pattern_list$JOIN_SEP) %>%
+      dplyr::data_frame(text = .)
+  )
+}
+
+
+SET_PARALLE <- list(IS_PARALLEL = TRUE, CORE = 3, ITERATORS_CHUNK_SIZE = 5000)
+SET_CHAR_PATTERN <- list(
+  SPLIT_SEP = "[:space:]",
+  DELETE_CHAR = c("\\.", "\\,", "\\!", "\\?", "\\;", "\\:", "\\(", "\\)", "\\[", "\\]", "\\'", "\""),
+  IS_NULL = "",
+  JOIN_SEP = " "
+)
+
+
+input_con <- file(description = basename(TASK_INPUT_URL), open = "r")
+iter_file <- iterators::ireadLines(
+  con = input_con,
+  n = SET_PARALLE$ITERATORS_CHUNK_SIZE
+)
+formatted_text <- pforeach::pforeach(
+  read_df = iter_file,
+  .c = rbind,
+  .export = c("tokenizeSentence", "SET_CHAR_PATTERN"),
+  .packages = load_packages,
+  .parallel = SET_PARALLE$IS_PARALLEL, .cores = SET_PARALLE$CORE
+)({
+  data.frame(text = read_df, stringsAsFactors = FALSE) %>%
+    dplyr::rowwise(.) %>%
+    dplyr::do(., tokenizeSentence(str = .$text, pattern_list = SET_CHAR_PATTERN))
+}) %>%
+  print
+
+close(input_con)
+
+
+```
+
+---
+
+## 81. 複合語からなる国名への対処
+英語では，複数の語の連接が意味を成すことがある．例えば，アメリカ合衆国は"United States"，イギリスは"United Kingdom"と表現されるが，"United"や"States"，"Kingdom"という単語だけでは，指し示している概念・実体が曖昧である．そこで，コーパス中に含まれる複合語を認識し，複合語を1語として扱うことで，複合語の意味を推定したい．しかしながら，複合語を正確に認定するのは大変むずかしいので，ここでは複合語からなる国名を認定したい．  
+インターネット上から国名リストを各自で入手し，80のコーパス中に出現する複合語の国名に関して，スペースをアンダーバーに置換せよ．例えば，"United States"は"United_States"，"Isle of Man"は"Isle_of_Man"になるはずである．
+```{r nlp100_knock_81, cache = TRUE}
+
+# 国名リストは{countrycode}のデータを使う
+coutry_name <- stringr::str_replace(
+  string = countrycode_data$country.name, pattern = "\\(.*\\)", replacement = ""
+)
+replace_coutry_name <- stringr::str_replace_all(
+  string = coutry_name, pattern = " ", replacement = "_"
+)
+names(replace_coutry_name) <- coutry_name
+
+# 国名を含む文だけ処理する
+is_include_coutry <- sapply(
+  X = lapply(X = formatted_text$text, FUN = stringr::str_detect, pattern = coutry_name),
+  FUN = any
+)
+formatted_text$text[is_include_coutry] <- stringr::str_replace_all(
+  str = formatted_text$text[is_include_coutry], pattern = replace_coutry_name
+)
+
+
+# ある程度の文字列長の国名を表示
+formatted_text$text[is_include_coutry][
+  stringr::str_length(string = formatted_text$text[is_include_coutry]) < 15
+]
+
+```
+
+---
+
+## 82. 文脈の抽出
+81で作成したコーパス中に出現するすべての単語tに関して，単語tと文脈語cのペアをタブ区切り形式ですべて書き出せ．ただし，文脈語の定義は次の通りとする．  
+- ある単語tの前後d単語を文脈語cとして抽出する（ただし，文脈語に単語tそのものは含まない）  
+- 単語tを選ぶ度に，文脈幅dは{1,2,3,4,5}の範囲でランダムに決める．  
+```{r nlp100_knock_82, cache = TRUE}
+
+# word, type(前 or 後), window, context_word
+fetchContextWord <- function (
+  str, window_size, seed = NULL
+){
+
+  str_len <- length(str)
+  if (is.null(seed)){
+    set.seed(seed = seed)
+  }
+  context_window <- sample.int(n = window_size, size = str_len, replace = TRUE)
+  word_window <- seq(from = 1, to = str_len) + context_window
+  word_window[word_window > str_len] <- str_len
+  
+  # 単語の後側d語
+  right_word <- stringr::str_split_fixed(
+    string = stringr::word(
+      string = stringi::stri_flatten(str = str, collapse = " "),
+      start = seq(from = 1, to = str_len), end = word_window,
+      sep = " "
+    ),
+    pattern = " ",
+    n = context_window + 1
+  )
+  if (ncol(right_word) < window_size + 1) {
+    right_word <- cbind(
+      right_word,
+      matrix(data = "", nrow = nrow(right_word), ncol = (window_size + 1) - ncol(right_word))
+    )
+  }
+  
+  # 単語の前側d語
+  left_word <- stringr::str_split_fixed(
+    string = stringr::word(
+      string = stringi::stri_flatten(str = str[seq(from = str_len, to = 1)], collapse = " "),
+      start = seq(from = 1, to = str_len), end = word_window,
+      sep = " "
+    ),
+    pattern = " ",
+    n = context_window + 1
+  )[seq(from = str_len, to = 1), , drop = FALSE]
+  if (ncol(left_word) < window_size + 1) {
+    left_word <- cbind(
+      left_word,
+      matrix(data = "", nrow = nrow(left_word), ncol = (window_size + 1) - ncol(left_word))
+    )
+  }
+
+
+  right_window <- left_window <- seq(from = 1, to = window_size + 1)
+  names(x = right_window) <-names(x = left_window) <- c("word", seq(from = 1, to = window_size))
+
+  return(
+    dplyr::bind_rows(
+      data.frame(right_word, stringsAsFactors = FALSE) %>%
+        dplyr::rename_(
+          .dots = setNames(
+            object = stringr::str_c("X", right_window), 
+            nm = names(right_window)
+          )
+        ) %>%
+        dplyr::mutate(type = "right"),
+      data.frame(left_word, stringsAsFactors = FALSE) %>%
+        dplyr::rename_(
+          .dots = setNames(
+            object = stringr::str_c("X", left_window), 
+            nm = names(left_window)
+          )
+        ) %>% 
+        dplyr::mutate(type = "left")
+    ) %>%
+      tidyr::gather_(
+        key_col = c("window"), 
+        gather_cols = as.character(seq(from = 1, to = window_size)),
+        value_col = c("context_word")
+    )
+  )
+}
+
+SET_SEED <- 71
+SET_WINDOW_SIZE <- 5
+SET_PARALLE_SPLIT_SIZE <- 5000
+SET_WRITE_FILE_NAME <- "term_context.tsv"
+
+
+# 今回は文の順番は関係ないタスクなので、乱数を用いて文を分割して処理
+formatted_text$split <- sort(
+  x = sample.int(
+    n = SET_PARALLE_SPLIT_SIZE, size = nrow(formatted_text),
+    replace = TRUE
+  )
+)
+formatted_text_iter <- iterators::isplit(x = formatted_text$text, f = formatted_text$split)
+word_context_word <- pforeach::pforeach(
+  p_read_df = formatted_text_iter,
+  .c = rbind,
+  .export = c("fetchContextWord", "SET_WINDOW_SIZE", "SET_SEED", "SET_WRITE_FILE_NAME"),
+  .packages = load_packages,
+  .parallel = SET_PARALLE$IS_PARALLEL, .cores = SET_PARALLE$CORE,
+  .inorder = FALSE
+)({
+  dplyr::data_frame(text = p_read_df$value) %>%
+    dplyr::rowwise(.) %>%
+    dplyr::do(.,
+      fetchContextWord(
+        str = stringr::str_split(string = .$text, pattern = "[:blank:]") %>% 
+          unlist,
+        window_size = SET_WINDOW_SIZE,
+        seed = SET_SEED
+      )
+    ) %>%
+    dplyr::filter(word != "") %>%
+    dplyr::filter(context_word != "") %>%
+    dplyr::select(word, context_word) %>%
+    readr::write_tsv(path = SET_WRITE_FILE_NAME, append = TRUE)
+})
+
+word_context_word <- readr::read_tsv(
+  file = SET_WRITE_FILE_NAME, n_max = -1,
+  col_names = c("word", "context_word")
+) %>% 
+  print
+
+readr::problems(x = word_context_word)
+word_context_word <- na.omit(word_context_word)
+
+```
+
+---
+
+## 83. 単語／文脈の頻度の計測
+82の出力を利用し，以下の出現分布，および定数を求めよ．  
+- f(t,c): 単語tと文脈語cの共起回数  
+- f(t,∗): 単語tの出現回数  
+- f(∗,c): 文脈語cの出現回数  
+- N: 単語と文脈語のペアの総出現回数  
+```{r nlp100_knock_83, cache = TRUE}
+
+# f(t,c)
+co_word_pair <- word_context_word %>%
+  dplyr::group_by(word, context_word) %>%
+  dplyr::summarize(tc = n()) %>%
+  print
+
+# f(t,∗)
+word_freq <- word_context_word %>%
+  dplyr::ungroup() %>%
+  dplyr::group_by(word) %>%
+  dplyr::summarize(t = n()) %>%
+  print
+
+# f(∗,c)
+context_freq <- word_context_word %>%
+  dplyr::ungroup() %>%
+  dplyr::group_by(context_word) %>%
+  dplyr::summarize(c = n()) %>%
+  print
+
+# N
+nrow(co_word_pair)
+
+```
+
+---
+
+## 84. 単語文脈行列の作成
+83の出力を利用し，単語文脈行列Xを作成せよ．ただし，行列Xの各要素Xtcは次のように定義する．  
+- f(t,c) ≥ 10ならば，$X_{tc}$=PPMI(t,c)=$max \{log\frac{N \times f(t,c)}{f(t,∗) \times f(∗,c)},0 \}$  
+- f(t,c) < 10ならば，$X_{tc}$=0  
+ここで，PPMI(t,c)はPositive Pointwise Mutual Information（正の相互情報量）と呼ばれる統計量である．なお，行列Xの行数・列数は数百万オーダとなり，行列のすべての要素を主記憶上に載せることは無理なので注意すること．幸い，行列Xのほとんどの要素は0になるので，非0の要素だけを書き出せばよい．
+```{r nlp100_knock_84, cache = TRUE}
+
+SET_THRESHOLD <- 10
+
+
+ppmi <- suppressWarnings(
+  dplyr::left_join(
+    x = dplyr::left_join(
+      x = co_word_pair %>%
+        dplyr::filter(tc >= SET_THRESHOLD),
+      y = word_freq,
+      by = "word"
+    ),
+    y = context_freq,
+    by = "context_word"
+  ) %>%
+  dplyr::mutate(ppmi = log((nrow(co_word_pair) * tc) / (t * c)))
+)
+
+# 桁あふれによるNaN, NA化した値をゼロに変換
+ppmi$ppmi <- ifelse(ppmi$ppmi > 0, ppmi$ppmi, 0)
+ppmi <- ppmi %>%
+  dplyr::select(word, context_word, ppmi) %>%
+  replace(is.na(.), 0)
+
+
+# 疎行列化（単純にtidyr::spreadをすると、メモリ消費が大きい）
+occur_words <- unique(word_freq$word)
+ppmi$word <- factor(ppmi$word, levels = as.character(occur_words))
+ppmi$context_word <- factor(ppmi$context_word, levels = as.character(occur_words))
+word_context_ppmi <- Matrix::sparseMatrix(
+  i = as.integer(ppmi$word), j = as.integer(ppmi$context_word),
+  x = ppmi$ppmi,
+  dims = c(length(occur_words), length(occur_words)),
+  dimnames = list(occur_words, occur_words)
+)
+
+```
+
+---
+
+## 85. 主成分分析による次元圧縮
+84で得られた単語文脈行列に対して，主成分分析を適用し，単語の意味ベクトルを300次元に圧縮せよ．
+```{r nlp100_knock_85, cache = TRUE}
+
+SET_DIM_NUM <- 300
+
+
+# 疎行列に対応している特異値分解(SVD)の関数を使う
+# ここではさらに左・右の特異ベクトルを近似した手法を用いる
+# （理解が足らないので「所感」で触れた資料や書籍で勉強し直す）
+lsi_res <- irlba::irlba(
+  A = word_context_ppmi,
+  nu = SET_DIM_NUM, nv = SET_DIM_NUM
+)
+word_sence <- t(
+  t(lsi_res$u[, seq(from = 1, to = SET_DIM_NUM), drop = FALSE]) %*% word_context_ppmi
+)
+rownames(word_sence) <- rownames(word_context_ppmi)
+
+```
+
+---
+
+## 86. 単語ベクトルの表示
+85で得た単語の意味ベクトルを読み込み，"United States"のベクトルを表示せよ．ただし，"United States"は内部的には"United_States"と表現されていることに注意せよ．
+```{r nlp100_knock_86}
+
+SET_SEARCH_WORD <- "United_States"
+
+
+# 計算しておいた意味ベクトルから行名でマッチング
+word_sence[is.element(rownames(word_sence), SET_SEARCH_WORD), ]
+
+```
+
+---
+
+## 87. 単語の類似度
+85で得た単語の意味ベクトルを読み込み，"United States"と"U.S."のコサイン類似度を計算せよ．ただし，"U.S."は内部的に"U.S"と表現されていることに注意せよ．
+```{r nlp100_knock_87}
+
+# コサイン類似度を{Rcpp}で書く
+# 今回は使わない
+rcpp_cosine_sim <- '
+  NumericVector calcCosineSim(NumericMatrix ipt_mat) {
+    using namespace Rcpp;
+    Environment base("package:base");
+    Function Rcrossprod = base["crossprod"];
+    Function Rtranspose = base["t"];
+    Function Router = base["outer"];
+    
+    NumericMatrix numerator = Rcrossprod(Rtranspose(ipt_mat));
+    NumericVector denominator = diag(numerator);
+    return Rcpp::wrap(numerator / sqrt(Router(denominator, denominator)));
+  }
+'
+calcCosine <- Rcpp::cppFunction(code = rcpp_cosine_sim, plugins = "cpp11")
+
+# コサイン類似度の必要な行だけを取り出す（N * Nの行列の出力を避ける）
+filterCosineSim <- function (
+  seed_word_vector, target_word_vectors, 
+  extract_rownames = NULL
+) {
+  word_vectors <- rbind(seed_word_vector, target_word_vectors)
+  numerator <- crossprod(x = t(x = word_vectors))
+  denominator <- diag(numerator)
+  return((numerator / sqrt(outer(denominator, denominator)))[extract_rownames, ])
+}
+
+SET_COMPARE_WORDS <- c("United_States", "^U\\.S$")
+
+
+filterCosineSim(
+  seed_word_vector = word_sence[
+    is.element(rownames(word_sence), SET_COMPARE_WORDS[1]), , drop = FALSE
+  ],
+  target_word_vectors = word_sence[
+    stringr::str_detect(
+      string = rownames(word_sence), pattern = SET_COMPARE_WORDS[-1]
+    ), , drop = FALSE
+  ], 
+  extract_rownames = SET_COMPARE_WORDS[1]
+)
+
+```
+
+
+## 88. 類似度の高い単語10件
+85で得た単語の意味ベクトルを読み込み，"England"とコサイン類似度が高い10語と，その類似度を出力せよ．
+```{r nlp100_knock_88}
+
+# 適当な乱数を割り当てて、一度にコサイン類似度を求めるベクトル数を減らす
+fetchCosineSimilarity <- function(
+  seed_word_vector, target_words_sence, 
+  seed_word_name,
+  split_size
+){
+  
+  # 疎行列から行列へ変換
+  seed_word_vector <- t(apply(X = seed_word_vector, MARGIN = 1, FUN = as.matrix))
+  target_words_sence <- data.frame(
+    t(apply(X = target_words_sence, MARGIN = 1, FUN = as.matrix)), 
+    stringsAsFactors = FALSE
+  )
+  
+  target_words_sence$split <- sample.int(
+    n = split_size, size = nrow(target_words_sence),
+    replace = TRUE
+  )
+  fetch_cs <- lapply(
+    X = split(
+      x = target_words_sence[, !is.element(colnames(target_words_sence), "split")],
+      f = target_words_sence$split
+    ),
+    FUN = function (target_sence) {
+      cosine_sim_res <- filterCosineSim(
+        seed_word_vector = seed_word_vector,
+        target_word_vectors = as.matrix(target_sence), 
+        extract_rownames = seed_word_name
+      )[-1]
+      return(cosine_sim_res[!is.nan(x = cosine_sim_res)])
+    }
+  )
+  cs_names <- dplyr::combine(sapply(X = fetch_cs, FUN = names))
+  fetch_cs <- dplyr::combine(fetch_cs)
+  names(fetch_cs) <- cs_names
+
+  return(fetch_cs)
+}
+
+TASK_EXTRACT_NUM <- 10
+SET_SEED_WORD <- c("England")
+SET_SPLIT_SIZE <- as.integer(nrow(word_sence) / 5000)
+
+
+# 並列処理しなくても充分だったのでしていない
+fetch_cs <- fetchCosineSimilarity(
+  seed_word_vector = word_sence[is.element(rownames(word_sence), SET_SEED_WORD), , drop = FALSE],
+  target_words_sence = word_sence[!is.element(rownames(word_sence), SET_SEED_WORD), , drop = FALSE],
+  seed_word_name = SET_SEED_WORD,
+  split_size = SET_SPLIT_SIZE
+)
+
+# 上位10語を表示
+sort(fetch_cs, decreasing = TRUE)[seq(from = 1, to = TASK_EXTRACT_NUM)]
+
+```
+
+---
+
+## 89. 加法構成性によるアナロジー
+85で得た単語の意味ベクトルを読み込み，vec("Spain") - vec("Madrid") + vec("Athens")を計算し，そのベクトルと類似度の高い10語とその類似度を出力せよ．
+```{r nlp100_knock_89}
+
+# 意味ベクトルを演算
+# 「+」と「-」のみの演算子に対応（他の演算子はスルーするので注意）
+createArithmeticWordVector <- function (
+  word_sence, def_arithmetic
+) {
+  return(
+    colSums(
+      do.call(
+        what = "rbind", 
+        args = lapply(
+          X = names(def_arithmetic),
+          FUN = function (each_arithmetic) {
+            return(
+              switch(EXPR = as.character(def_arithmetic[each_arithmetic]),
+                "+" = + word_sence[each_arithmetic, ],
+                "-" = - word_sence[each_arithmetic, ]
+              )
+            )
+          }
+        )
+      )
+    )
+  )
+}
+
+TASK_EXTRACT_NUM <- 10
+SET_DEF_ARITHMETIC <- c("Spain" = "+", "Madrid" = "-", "Athens" = "+")
+SET_SPLIT_SIZE <- as.integer(nrow(word_sence) / 5000)
+
+
+# 演算対象から仮の名前を生成して、それで計算結果を絞り込み
+create_arithmtic_word_name <- stringr::str_c(names(SET_DEF_ARITHMETIC), collapse = "_")
+fetch_arithmetic_cs <- fetchCosineSimilarity(
+  seed_word_vector = matrix(
+    data = createArithmeticWordVector(
+      word_sence = word_sence, def_arithmetic = SET_DEF_ARITHMETIC
+    ),
+    nrow = 1, ncol = ncol(word_sence),
+    dimnames = list(create_arithmtic_word_name, NULL)
+  ),
+  target_words_sence = word_sence,
+  seed_word_name = create_arithmtic_word_name,
+  split_size = SET_SPLIT_SIZE
+)
+
+# 上位10語を表示
+sort(fetch_arithmetic_cs, decreasing = TRUE)[seq(from = 1, to = TASK_EXTRACT_NUM)]
+
+```
+
+---
+
+---
+
+# 所感  
+- 言語処理100本ノック(2015年版)のベクトル空間法(I)の章をやってみました（データ量を減らして逃げてしまいました）。  
+
+- 今回は疎行列（スパース行列）化する際に{Matrix}のdgcMatrixクラスへ変換していますが、{SparseM}や
+{slam}などのパッケージでも疎行列は扱えます（一般的には{Matrix}が使われていて、多くのパッケージでもサポートされていてよいのではという[意見](http://stackoverflow.com/questions/1167448/most-mature-sparse-matrix-package-for-r)や、{Matrix}と{slam}を比較した[記事](http://www.johnmyleswhite.com/notebook/2011/10/31/using-sparse-matrices-in-r/)もあります）。  
+　[SparseM: Sparse Linear Algebra](https://cran.r-project.org/web/packages/SparseM/index.html)  
+　[slam: Sparse Lightweight Arrays and Matrices](https://cran.r-project.org/web/packages/slam/index.html)  
+-- （なお、Rでテキストマイニングをする{tm}では、単語文書行列を作るときに{slam}を使えるようです）  
+　[Term-Document Matrix {tm}](http://www.inside-r.org/packages/cran/tm/docs/as.TermDocumentMatrix)  
+- {Matrix}の疎行列のクラスには他にもdgRMatrixやdgTMatrixなどがありますが、どういうデータにはどういうクラスが向いていて、どういう風に変換しているかは今後調査します（上級ハンドブックに記載あり）。  
+```{r sparseMatrix}
+showClass("sparseMatrix")
+```
+
+- 言語処理で扱うデータは大規模なスパースになる傾向があり、統計モデリングや機械学習するには逐次処理させるか、データを疎行列化（モデル式で疎行列化できるMatrix::sparse.model.matrixが便利かも）して、疎行列に対応した関数を適用する必要があります。{glmnet}や{xgboost}, {e1071}などに疎行列に対応した関数が定義されています（他にも{MatrixModels}や{sparsereg}も対応している模様（こちらは調査中））。  
+　[Sparse Model Matrices for Generalized Linear Models](https://www.r-project.org/conferences/useR-2010/slides/Maechler+Bates.pdf)  
+　[The Sparse Matrix and {glmnet}](http://amunategui.github.io/sparse-matrix-glmnet/)  
+　[MatrixModels: Modelling with Sparse And Dense Matrices](https://cran.r-project.org/web/packages/MatrixModels/index.html)  
+　[sparsereg: Sparse Bayesian Models for Regression, Subgroup Analysis, and Panel Data](https://cran.r-project.org/web/packages/sparsereg/index.html)  
+-- また、前回の課題で使った{FeatureHashing}のhashed.model.matrix関数はdgcMatrix引数をTRUEにすると、疎行列として結果を返します（[前回](http://rpubs.com/yamano357/100016)の課題72を参照のこと）。  
+
+- 主成分分析の課題では特異値分解した結果を使いました。この際、implicitly restarted Lanczos bidiagonalizationを実装した{irlba}を用いましたが、他にも乱拓法による近似もあります（よく理解していないので、下記に参照したリンクを記述）。  
+　[Augmented Implicitly Restarted Lanczos Bidiagonalization Methods](http://www.math.uri.edu/~jbaglama/papers/paper14.pdf)  
+　[Partial Lanczos SVD methods for R](https://www.r-project.org/conferences/useR-2009/slides/Lewis.pdf)  
+-- 乱拓法  
+　[Fast Randomized SVD](https://research.facebook.com/blog/294071574113354/fast-randomized-svd/)  
+　[SVD for sparse matrix in R](http://stackoverflow.com/questions/4951286/svd-for-sparse-matrix-in-r)  
+　[RedSVD](https://code.google.com/p/redsvd/wiki/Japanese)  
+　[RcppEigen and SVD](http://www.slideshare.net/xiangze/rcppeigen-and-svd)  
+-- その他メモ  
+　[大規模データ処理のための行列の低ランク近似 -- SVD から用例ベースの行列分解まで --](http://d.hatena.ne.jp/mamoruk/20090213/p1)  
+　[18 Matrix decomposition and latent semantic indexing (pp.369-384)](http://d.hatena.ne.jp/sleepy_yoshi/20081025/p1)  
+　[主成分分析と特異値分解](http://highschoolstudent.hatenablog.com/entry/2013/04/21/125222)  
+　[潜在的意味インデキシング（LSI）徹底入門](http://d.hatena.ne.jp/a_bicky/20120324/1332591498)  
+　[今年のSIGKDDベストペーパーを実装・公開してみました](https://research.preferred.jp/2013/08/sketch/)
+
+```
+# RedSVDをHomebrewからインストールして、RからRedSVDを使おうとした際のメモ（not run）
+# https://github.com/ntessore/homebrew-nt
+brew tap ntessore/homebrew-nt
+brew install redsvd
+
+# テストで失敗する
+# devtools::install_github("xiangze/RRedsvd")
+```
+
+- 本課題をこなすにあたり、下記の書籍で学んでおくといいと思います（自分復習用）。  
+　[Rによるハイパフォーマンスコンピューティング](http://www.amazon.co.jp/dp/4883379353)  
+　[プログラミングのための線形代数](http://www.amazon.co.jp/dp/4274065782/)  
+　[これなら分かる応用数学教室―最小二乗法からウェーブレットまで](http://www.amazon.co.jp/dp/4320017382/)  
+
+- 個人的には、言語処理の課題よりも大規模データの処理を考える方が難しかったです。  
+
+---
+
+---
+
+# 実行環境
+```{r footer}
+library(devtools)
+devtools::session_info()
+```
