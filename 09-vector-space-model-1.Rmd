@@ -117,6 +117,12 @@ knitr::opts_chunk$set(comment = NA)
 # TASK_INPUT_URL <- "http://www.cl.ecei.tohoku.ac.jp/nlp100/data/enwiki-20150112-400-r10-105752.txt.bz2"
 TASK_INPUT_URL <- "http://www.cl.ecei.tohoku.ac.jp/nlp100/data/enwiki-20150112-400-r100-10576.txt.bz2"
 
+# 10章用のファイル名
+NEXT_TASK_INPUT_FNAME <- list(
+  CORPUS = "enwiki-corpus.txt",
+  WORD_VECTOR = "word-vector.RData"
+)
+
 
 # ファイル取得 
 download.file(
@@ -227,6 +233,9 @@ formatted_text$text[is_include_coutry] <- stringr::str_replace_all(
 formatted_text$text[is_include_coutry][
   stringr::str_length(string = formatted_text$text[is_include_coutry]) < 15
 ]
+
+# 10章用にファイルへ書き込み  
+readr::write_tsv(x = formatted_text, path = NEXT_TASK_INPUT_FNAME$CORPUS, col_names = FALSE)
 
 ```
 
@@ -466,6 +475,9 @@ word_sence <- t(
   t(lsi_res$u[, seq(from = 1, to = SET_DIM_NUM), drop = FALSE]) %*% word_context_ppmi
 )
 rownames(word_sence) <- rownames(word_context_ppmi)
+
+# 10章用にファイルへ書き込み  
+save(word_sence, file = NEXT_TASK_INPUT_FNAME$WORD_VECTOR)
 
 ```
 
