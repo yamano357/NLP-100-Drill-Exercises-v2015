@@ -1,0 +1,1093 @@
+---
+title: "言語処理100本ノック 第10章:ベクトル空間法 (2)"
+author: '@yamano357'
+date: "2015年10月14日"
+output:
+  html_document:
+    theme: readable
+    toc: true
+    toc_depth: 2
+    number_sections: false
+    pandoc_args: [
+      "--from", "markdown+autolink_bare_uris+tex_math_single_backslash-implicit_figures"
+    ]
+    
+---
+
+---
+
+---
+
+前回までのrPubsページ  
+- [第1章:準備運動](http://rpubs.com/yamano357/84965)  
+- [第2章:UNIXコマンドの基礎](http://rpubs.com/yamano357/85313)  
+- [第3章:正規表現](http://rpubs.com/yamano357/86911)  
+- [第4章:形態素解析](http://rpubs.com/yamano357/90200)  
+- [第5章:構文解析](http://rpubs.com/yamano357/91770)  
+- [第6章:英語テキストの処理](http://rpubs.com/yamano357/94986)  
+- [第7章:データベース](http://rpubs.com/yamano357/98624)  
+- [第8章:機械学習](http://rpubs.com/yamano357/100016)  
+- [第9章:ベクトル空間法 (I)](http://rpubs.com/yamano357/107149)  
+
+前回引き続き、言語処理100本ノック（2015年版）を解きます。  
+
+（下記の『前書き（言語処理100本ノックについて）』は前回と同じです）
+
+---
+
+
+# 概要
+前書き（言語処理100本ノックについて）  
+- 本稿では、東北大学の乾・岡崎研究室で公開されている[言語処理100本ノック（2015年版）](http://www.cl.ecei.tohoku.ac.jp/nlp100/)を、R言語で解いていきます。  
+- [改訂前の言語処理100本ノック](http://www.cl.ecei.tohoku.ac.jp/index.php?NLP%20100%20Drill%20Exercises)も同様に上記研究室のサイトにあります。
+
+- 上記のふたつをご覧いただき、下記に進んでいただけますと幸いです。  
+
+---
+
+前書き（Rに関して）  
+- Rの構文や関数についての説明は一切ありませんので、あらかじめご了承ください。  
+- 本稿では、{base}にある文字列処理ではなく、{stringr}（1.0.0以上）とパイプ処理を極力用いております（{stringi}も処理に応じて活用していきます）。課題によってはパイプ処理でこなすのに向かない状況もありますので、あらかじめご了承ください。  
+- 今回はあらかじめコマンドを実行して作成したword2vecによる単語の分散表現を読み込んでおります。
+
+---
+
+参考ページ  
+
+- {stringr}と{stringi}  
+　[hadley/stringr](https://github.com/hadley/stringr)  
+　[RPubs - このパッケージがすごい2014: stringr](https://rpubs.com/uri-sy/demo_stringr)  
+　[stringiで輝く☆テキストショリスト](http://qiita.com/kohske/items/85d49da04571e9055c44)  
+　[stringr 1.0.0を使ってみる](http://notchained.hatenablog.com/entry/2015/05/01/011703)
+
+- {readr}  
+　[hadley/readr](https://github.com/hadley/readr)  
+　[readr とは？](http://oku.edu.mie-u.ac.jp/~okumura/stat/readr.html)  
+　[readr 0.0.0.9000を使ってみる](http://notchained.hatenablog.com/entry/2015/03/22/150827)  
+
+- word2vec  
+　[word2vec](https://code.google.com/p/word2vec/)  
+　[jdeng/word2vec](https://github.com/jdeng/word2vec)  
+　[手持ちのMacBook Air(OS X 10.9.2)でword2vecを動かしてみる](http://chalow.net/2014-05-21-1.html)  
+　[danielfrg/word2vec](https://github.com/danielfrg/word2vec)  
+
+- t-SNE  
+　[t-SNE](http://lvdmaaten.github.io/tsne/)  
+　[次元削除(t-SNE)](http://puyokw.hatenablog.com/entry/2015/06/21/000102)  
+　[jkrijthe/Rtsne](https://github.com/jkrijthe/Rtsne)  
+　[tSNE](http://d.hatena.ne.jp/ryamada22/20130613/1371091312)  
+　[RでSPADEとviSNEを使って次元削減と可視化](http://www.slideshare.net/Med_KU/20140222-tokyor36-rspadevisne)  
+
+---
+
+ご意見やご指摘など  
+- こうした方が良いやこういう便利な関数がある、間違いがあるなど、ご指摘をお待ちしております。  
+- 下記のいずれかでご連絡・ご報告いただけますと励みになります（なお、Gitに慣れていない人です）。  
+　[Twitter](https://twitter.com/yamano357), [GitHub](https://github.com/yamano357/NLP-100-Drill-Exercises-v2015)  
+
+---
+
+---
+
+# Rコード  
+- 以下、ひたすら解いていきます。  
+
+## パッケージ読み込み
+```{r read_lib, message = FALSE}
+# devtools::install_github("aaboyles/hadleyverse")
+SET_LOAD_LIB <- c("knitr", "hadleyverse", "stringi", "lazyeval", "Matrix", "countrycode", "networkD3", "ggmap", "leaflet", "rgdal", "tsne")
+sapply(X = SET_LOAD_LIB, FUN = library, character.only = TRUE, logical.return = TRUE)
+load_packages <- as.character(na.omit(object = stringr::str_match(string = search(), pattern = "^package:(.*)")[, 2]))
+knitr::opts_chunk$set(comment = NA)
+
+```
+
+---
+
+## 事前準備
+```{r priprocess, cache = TRUE}
+
+SET_TASK_FILE_NAMES <- list(
+  # 81で作成したコーパス
+  PREV_CORPUS = "enwiki-courpus.txt",
+  # コマンドライン実行で作成するword2vecの結果のモデルファイル
+  WORD2VEC_MODEL = "enwiki-word2vec.model",
+  # 85で作成したベクトル表現
+  WORDVEC = "word-vector.RData",
+  # The WordSimilarity-353 Test Collectionのzipファイルの中で使うファイル
+  SIMILARITY_EVAL = "combined.csv"
+)
+
+TASK_INPUT_URL <- list(
+  # 単語アナロジーの評価データ
+  ANALOGY_EVAL = "https://word2vec.googlecode.com/svn/trunk/questions-words.txt",
+  # The WordSimilarity-353 Test Collectionの評価データ
+  SIMILARITY_EVAL = "http://www.cs.technion.ac.il/~gabr/resources/data/wordsim353/wordsim353.zip"
+)
+
+
+# ファイル取得 
+sapply(
+  X = seq(from = 1, to = length(TASK_INPUT_URL)),
+  FUN = function (i) {
+    download.file(
+      url = TASK_INPUT_URL[[i]], destfile = basename(path = TASK_INPUT_URL[[i]]), 
+      method = "wget", quiet = FALSE
+    )
+    return(
+      file.exists(file1 = basename(path = TASK_INPUT_URL[[i]]))
+    )
+  }
+)
+
+# 複数ファイルをまとめたzipファイルを解凍して、必要なファイルを取得
+utils::unzip(
+  zipfile = basename(path = TASK_INPUT_URL$SIMILARITY_EVAL), 
+  files = SET_TASK_FILE_NAMES$SIMILARITY_EVAL
+)
+
+```
+
+```{r 9_def}
+# 9章で定義した関数群を再度定義
+
+# コサイン類似度の必要な行だけを取り出す（N * Nの行列の出力を避ける）
+filterCosineSim <- function (
+  seed_word_vector, target_word_vectors, 
+  extract_rownames = NULL
+) {
+  word_vectors <- rbind(seed_word_vector, target_word_vectors)
+  numerator <- crossprod(x = t(x = word_vectors))
+  denominator <- diag(numerator)
+  return((numerator / sqrt(outer(denominator, denominator)))[extract_rownames, ])
+}
+
+# 適当な乱数を割り当てて、一度にコサイン類似度を求めるベクトル数を減らす
+fetchCosineSimilarity <- function(
+  seed_word_vector, target_words_sence, 
+  seed_word_name,
+  split_size
+){
+  
+  # 疎行列から行列へ変換
+  seed_word_vector <- t(apply(X = seed_word_vector, MARGIN = 1, FUN = as.matrix))
+  target_words_sence <- data.frame(
+    t(apply(X = target_words_sence, MARGIN = 1, FUN = as.matrix)), 
+    stringsAsFactors = FALSE
+  )
+  
+  target_words_sence$split <- sample.int(
+    n = split_size, size = nrow(target_words_sence),
+    replace = TRUE
+  )
+  fetch_cs <- lapply(
+    X = split(
+      x = target_words_sence[, !is.element(colnames(target_words_sence), "split")],
+      f = target_words_sence$split
+    ),
+    FUN = function (target_sence) {
+      cosine_sim_res <- filterCosineSim(
+        seed_word_vector = seed_word_vector,
+        target_word_vectors = as.matrix(target_sence), 
+        extract_rownames = seed_word_name
+      )[-1]
+      return(cosine_sim_res[!is.nan(x = cosine_sim_res)])
+    }
+  )
+  cs_names <- dplyr::combine(sapply(X = fetch_cs, FUN = names))
+  fetch_cs <- dplyr::combine(fetch_cs)
+  names(fetch_cs) <- cs_names
+
+  return(fetch_cs)
+}
+
+# 意味ベクトルを演算
+# 「+」と「-」のみの演算子に対応（他の演算子はスルーするので注意）
+createArithmeticWordVector <- function (
+  word_sence, def_arithmetic
+) {
+  return(
+    colSums(
+      do.call(
+        what = "rbind", 
+        args = lapply(
+          X = names(def_arithmetic),
+          FUN = function (each_arithmetic) {
+            return(
+              switch(EXPR = as.character(def_arithmetic[each_arithmetic]),
+                "+" = + word_sence[each_arithmetic, ],
+                "-" = - word_sence[each_arithmetic, ]
+              )
+            )
+          }
+        )
+      )
+    )
+  )
+}
+
+```
+
+
+```{r create_model}
+# 事前にモデルファイルを作成
+# https://github.com/Homebrew/homebrew-head-only/
+# brew install --HEAD https://raw.githubusercontent.com/Homebrew/homebrew-head-only/master/word2vec.rb
+
+SET_WORD2_VEC_PARAM <- list(
+  SIZE = 200, WINDOW = 5, SAMPLE = 0.0001,
+  NEGATIVE = 5,
+  CBOW = 1,
+  ITER = 3
+)
+
+word2vec_training_command <- stringr::str_c(
+  stringr::str_c(
+    stringr::str_c("-", stringr::str_to_lower(string = names(SET_WORD2_VEC_PARAM))),
+    SET_WORD2_VEC_PARAM,
+    sep = " "
+  )
+)
+
+# 下記のコマンドを実行
+# word2vec -train enwiki-courpus.txt -output enwiki-word2vec.model -size 200 -window 5 -sample 1e-4 -negative 5 -hs 0 -binary 0 -cbow 1 -iter 3
+# system2(
+#   command = "word2vec",
+#   args = stringr::str_c(
+#     "-train", SET_TASK_FILE_NAMES$PREV_CORPUS, "-output", SET_TASK_FILE_NAMES$WORD2VEC_MODEL,
+#     stringi::stri_flatten(str = word2vec_training_command, collapse = " "),
+#    "-hs 0 -binary 0",
+#    sep = " "
+#  )
+#)
+```
+
+---
+
+## 90. word2vecによる学習
+81で作成したコーパスに対してword2vecを適用し，単語ベクトルを学習せよ．さらに，学習した単語ベクトルの形式を変換し，86-89のプログラムを動かせ．
+
+```{r nlp100_knock_90, cache = TRUE}
+
+# word2vecを適用した結果を読み込み
+word_vec <- stringr::str_split_fixed(
+  string = readr::read_lines(file = SET_TASK_FILE_NAMES$WORD2VEC_MODEL, n_max = -1),
+  pattern = "[:blank:]", n = SET_WORD2_VEC_PARAM$SIZE + 1
+)[-1, ]
+wordvec_matrix <- matrix(
+  data = as.numeric(word_vec[, -1, drop = FALSE]),
+  ncol = SET_WORD2_VEC_PARAM$SIZE,
+  dimnames = list(word_vec[, 1], NULL)
+)
+
+
+# 86
+# 85で得た単語の意味ベクトルを読み込み，"United States"のベクトルを表示せよ．ただし，"United States"は内部的には"United_States"と表現されていることに注意せよ．
+
+SET_SEARCH_WORD <- "United_States"
+wordvec_matrix[is.element(rownames(wordvec_matrix), SET_SEARCH_WORD), ]
+
+
+# 87
+# 85で得た単語の意味ベクトルを読み込み，"United States"と"U.S."のコサイン類似度を計算せよ．ただし，"U.S."は内部的に"U.S"と表現されていることに注意せよ．
+
+SET_COMPARE_WORDS <- c("United_States", "^U\\.S$")
+filterCosineSim(
+  seed_word_vector = wordvec_matrix[
+    is.element(rownames(wordvec_matrix), SET_COMPARE_WORDS[1]), , drop = FALSE
+  ],
+  target_word_vectors = wordvec_matrix[
+    stringr::str_detect(
+      string = rownames(wordvec_matrix), pattern = SET_COMPARE_WORDS[-1]
+    ), , drop = FALSE
+  ], 
+  extract_rownames = SET_COMPARE_WORDS[1]
+)
+
+# 88
+# 85で得た単語の意味ベクトルを読み込み，"England"とコサイン類似度が高い10語と，その類似度を出力せよ．
+
+TASK_EXTRACT_NUM <- 10
+SET_SEED_WORD <- c("England")
+SET_SPLIT_SIZE <- as.integer(nrow(wordvec_matrix) / 5000)
+fetch_cs <- fetchCosineSimilarity(
+  seed_word_vector = wordvec_matrix[is.element(rownames(wordvec_matrix), SET_SEED_WORD), , drop = FALSE],
+  target_words_sence = wordvec_matrix[!is.element(rownames(wordvec_matrix), SET_SEED_WORD), , drop = FALSE],
+  seed_word_name = SET_SEED_WORD,
+  split_size = SET_SPLIT_SIZE
+)
+
+# 上位10語を表示
+sort(fetch_cs, decreasing = TRUE)[seq(from = 1, to = TASK_EXTRACT_NUM)]
+
+
+# 89
+# 85で得た単語の意味ベクトルを読み込み，vec("Spain") - vec("Madrid") + vec("Athens")を計算し，そのベクトルと類似度の高い10語とその類似度を出力せよ．
+
+TASK_EXTRACT_NUM <- 10
+SET_DEF_ARITHMETIC <- c("Spain" = "+", "Madrid" = "-", "Athens" = "+")
+SET_SPLIT_SIZE <- as.integer(nrow(wordvec_matrix) / 5000)
+create_arithmtic_word_name <- stringr::str_c(names(SET_DEF_ARITHMETIC), collapse = "_")
+fetch_arithmetic_cs <- fetchCosineSimilarity(
+  seed_word_vector = matrix(
+    data = createArithmeticWordVector(
+      word_sence = wordvec_matrix, def_arithmetic = SET_DEF_ARITHMETIC
+    ),
+    nrow = 1, ncol = ncol(wordvec_matrix),
+    dimnames = list(create_arithmtic_word_name, NULL)
+  ),
+  target_words_sence = wordvec_matrix,
+  seed_word_name = create_arithmtic_word_name,
+  split_size = SET_SPLIT_SIZE
+)
+
+# 上位10語を表示
+sort(fetch_arithmetic_cs, decreasing = TRUE)[seq(from = 1, to = TASK_EXTRACT_NUM)]
+
+```
+
+---
+
+## 91. アナロジーデータの準備
+単語アナロジーの評価データをダウンロードせよ．このデータ中で": "で始まる行はセクション名を表す．例えば，": capital-common-countries"という行は，"capital-common-countries"というセクションの開始を表している．ダウンロードした評価データの中で，"family"というセクションに含まれる評価事例を抜き出してファイルに保存せよ．
+```{r nlp100_knock_91, cache = TRUE}
+
+SET_EXTRACT_PATTERN <- list(
+  SECTION_START = "^:", 
+  TARGET_SECTION = "family"
+)
+
+
+# 全要素とセクションのID
+read_analogy <- dplyr::data_frame(
+  text = readr::read_lines(file = TASK_INPUT_URL$ANALOGY_EVAL, n_max = -1)
+) %>%
+  dplyr::mutate(
+    section_id = cumsum(
+      x = stringr::str_detect(string = .$text, pattern = SET_EXTRACT_PATTERN$SECTION_START)
+    )
+  )
+
+# 必要なセクションのみ
+analogy_eval_word <- read_analogy %>%
+  dplyr::filter(
+    is.element(
+      el = .$section_id,
+      set = read_analogy %>%
+        dplyr::filter(
+          stringr::str_detect(string = .$text, pattern = SET_EXTRACT_PATTERN$TARGET_SECTION)
+        ) %>%
+        .$section_id
+    )
+  ) %>%
+  .$text
+analogy_eval_word <- analogy_eval_word[-1]
+
+# 適当な数だけ表示
+head(x = analogy_eval_word, n = 20)
+
+```
+
+---
+
+## 92. アナロジーデータへの適用
+91で作成した評価データの各事例に対して，vec(2列目の単語) - vec(1列目の単語) + vec(3列目の単語)を計算し，そのベクトルと類似度が最も高い単語と，その類似度を求めよ．求めた単語と類似度は，各事例の末尾に追記せよ．このプログラムを85で作成した単語ベクトル，90で作成した単語ベクトルに対して適用せよ．
+```{r nlp100_knock_92, cache = TRUE}
+
+createArithmticWordName <- function(
+  target_word,
+  set_arithmetic = c("1" = "-", "2" = "+", "3" = "+")
+) {
+  word_arithmetic <- as.character(set_arithmetic)
+  names(word_arithmetic) <- target_word[as.integer(names(set_arithmetic))]
+  return(list(word_arithmetic))
+}
+
+# 複数個のベクトルをseed_word_vectorにして、一度にコサイン類似度を計算
+# （「fetchCosineSimilarity」を修正）
+fetchMulutiCosineSimilarity <- function(
+  seed_word_vector, target_words_sence, 
+  seed_word_name,
+  split_size
+){
+  
+  # 疎行列から行列へ変換
+  seed_word_vector <- t(apply(X = seed_word_vector, MARGIN = 1, FUN = as.matrix))
+  target_words_sence <- data.frame(
+    t(apply(X = target_words_sence, MARGIN = 1, FUN = as.matrix)), 
+    stringsAsFactors = FALSE
+  )
+  
+  target_words_sence$split <- sample.int(
+    n = split_size, size = nrow(target_words_sence),
+    replace = TRUE
+  )
+  fetch_cs <- lapply(
+    X = split(
+      x = target_words_sence[, !is.element(colnames(target_words_sence), "split")],
+      f = target_words_sence$split
+    ),
+    FUN = function (target_sence) {
+      # 「fetchCosineSimilarity」と下記が異なる
+      cosine_sim_res <- filterCosineSim(
+        seed_word_vector = seed_word_vector,
+        target_word_vectors = as.matrix(target_sence), 
+        extract_rownames = seed_word_name
+      )
+      cosine_sim_res <- cosine_sim_res[, !is.element(
+        el = colnames(cosine_sim_res), set = rownames(seed_word_vector))
+      ]
+      return(
+        na.omit(
+          object = replace(x = cosine_sim_res, list = is.nan(cosine_sim_res), values = 0)
+        )
+      )
+    }
+  )
+  fetch_cs <- do.call(what = "cbind", args = fetch_cs)
+  return(fetch_cs)
+}
+
+applyAnalogy <- function (
+  wordvec_analogy, wordvec_matrix,
+  apply_arithmetic_param = list(
+    arithmetic_pattern = c("1" = "-", "2" = "+", "3" = "+"),
+    extract_size = 10
+  ),
+  is_sort = TRUE
+) {
+
+  create_wordvec_arithmtic_word_name <- apply(
+    X = wordvec_analogy[, 1:3], 
+    MARGIN = 1,
+    FUN = stringr::str_c, collapse = "_"
+  )
+  
+  def_wordvec_arithmetic_lst <- do.call(
+    what = "rbind",
+    args = apply(
+      X = wordvec_analogy,
+      MARGIN = 1,
+      FUN = createArithmticWordName, 
+      set_arithmetic = apply_arithmetic_param$arithmetic_pattern
+    )
+  )[, ]
+  
+  
+  fetch_arithmetic_cs <- fetchMulutiCosineSimilarity(
+    seed_word_vector = matrix(
+      data = sapply(
+        X = def_wordvec_arithmetic_lst,
+        FUN = createArithmeticWordVector,
+        word_sence = wordvec_matrix
+      ),
+      nrow = length(def_wordvec_arithmetic_lst), ncol = ncol(wordvec_matrix),
+      byrow = TRUE,
+      dimnames = list(create_wordvec_arithmtic_word_name, NULL)
+    ),
+    target_words_sence = wordvec_matrix,
+    seed_word_name = create_wordvec_arithmtic_word_name,
+    split_size = as.integer(nrow(wordvec_matrix) / 5000)
+  )
+  
+  return (
+    do.call(
+      what = "rbind", 
+      args = lapply(
+        X = seq(from = 1, to = length(def_wordvec_arithmetic_lst)),
+        FUN = function (i) {
+          fetched_arithmetic_vec <- fetch_arithmetic_cs[i, ]
+          fetched_arithmetic_vec <- fetched_arithmetic_vec[
+            setdiff(x = names(fetched_arithmetic_vec), names(def_wordvec_arithmetic_lst[[i]]))
+          ]
+          if (is_sort) {
+            fetched_arithmetic_vec <- sort(x = fetched_arithmetic_vec, decreasing = TRUE)
+          }
+          fetched_arithmetic_vec <- fetched_arithmetic_vec[
+            seq(from = 1, to = apply_arithmetic_param$extract_size)
+          ]
+          
+          return(
+            list(
+              word = names(fetched_arithmetic_vec),
+              similarity = as.numeric(fetched_arithmetic_vec)
+            )
+          )
+        }
+      )
+    )
+  )
+}
+
+splitWordVector <- function (target_lst) {
+   return(
+     stringr::str_split_fixed(
+       string = stringr::str_c(
+         mapply(target_lst$word, target_lst$similarity, FUN = stringr::str_c, sep = ":"),
+         collapse = ":"
+       ),
+       pattern = ":",
+       n = length(target_lst$word) * 2
+    )
+  )
+}
+
+SET_APPLY_ARITHMETIC <- list(
+  ARITHMETIC_PATTERN = c("1" = "-", "2" = "+", "3" = "+"),
+  EXTRACT_SIZE = 10,
+  WRITE_TOP_SIM = 1
+)
+
+
+# アナロジーデータを読み込み、アナロジーのパターンリストを作成
+analogy_eval_word_mat <- stringr::str_split_fixed(
+  string = analogy_eval_word, pattern = "[:space:]", n = 4
+)
+create_arithmtic_word_name <- apply(
+  X = analogy_eval_word_mat[, 1:3], 
+  MARGIN = 1,
+  FUN = stringr::str_c, collapse = "_"
+)
+def_arithmetic_lst <- do.call(
+  what = "rbind",
+  args = apply(
+    X = analogy_eval_word_mat,
+    MARGIN = 1,
+    FUN = createArithmticWordName, 
+    set_arithmetic = SET_APPLY_ARITHMETIC$ARITHMETIC_PATTERN
+  )
+)[, ]
+include_analogy_word <- unique(as.character(analogy_eval_word_mat[, 1:3]))
+
+
+# word2vec
+# アナロジーの正解データにありword2vecにない単語があるので、これを除外（wordvec_analogy_eval）
+setdiff(x = include_analogy_word, y = rownames(wordvec_matrix))
+wordvec_analogy_eval <- analogy_eval_word_mat[!apply(
+  X = !apply(
+    X = analogy_eval_word_mat, MARGIN = 1, FUN = is.element, set = rownames(wordvec_matrix)
+  ),
+  MARGIN = 2,
+  FUN = any
+), ]
+# すべて含まれる
+setdiff(x = unique(as.character(wordvec_analogy_eval[, 1:3])), y = rownames(wordvec_matrix))
+
+# アナロジーによる演算の結果をTopN個取得
+wordvec_arithmetic_top_n <- applyAnalogy(
+  wordvec_analogy = wordvec_analogy_eval,
+  wordvec_matrix = wordvec_matrix,
+  apply_arithmetic_param = list(
+    arithmetic_pattern = SET_APPLY_ARITHMETIC$ARITHMETIC_PATTERN,
+    extract_size = SET_APPLY_ARITHMETIC$EXTRACT_SIZE
+  ),
+  is_sort = TRUE
+)
+
+# タスクに必要分だけに限定
+analogy_append_wordvec_res <- cbind(
+  wordvec_analogy_eval,
+  t(apply(
+    X = wordvec_arithmetic_top_n,
+    MARGIN = 1,
+    FUN = splitWordVector
+  ))[, seq(from = 1, to = SET_APPLY_ARITHMETIC$WRITE_TOP_SIM * 2)]
+)
+head(x = analogy_append_wordvec_res, n = 20)
+
+
+# LSI
+# 前の章で保存した単語ベクトルデータを読み込み
+load(file = SET_TASK_FILE_NAMES$WORDVEC)
+
+# アナロジーの正解データにあり単語の意味ベクトルにない単語があるので、これを除外（word_sence_analogy_eval）
+setdiff(x = include_analogy_word, y = rownames(word_sence))
+word_sence_analogy_eval <- analogy_eval_word_mat[!apply(
+  X = !apply(
+    X = analogy_eval_word_mat, MARGIN = 1, FUN = is.element, set = rownames(word_sence)
+  ),
+  MARGIN = 2,
+  FUN = any
+), ]
+# すべて含まれる
+setdiff(x = unique(as.character(word_sence_analogy_eval[, 1:3])), y = rownames(word_sence))
+
+# アナロジーによる演算の結果をTopN個取得
+word_sence_arithmetic_top_n <- applyAnalogy(
+  wordvec_analogy = word_sence_analogy_eval,
+  wordvec_matrix = word_sence,
+  apply_arithmetic_param = list(
+    arithmetic_pattern = SET_APPLY_ARITHMETIC$ARITHMETIC_PATTERN,
+    extract_size = SET_APPLY_ARITHMETIC$EXTRACT_SIZE
+  ),
+  is_sort = TRUE
+)
+
+# タスクに必要分だけに限定
+analogy_append_word_sence_res <- cbind(
+  word_sence_analogy_eval,
+  t(apply(
+    X = word_sence_arithmetic_top_n,
+    MARGIN = 1,
+    FUN = splitWordVector
+  ))[, seq(from = 1, to = SET_APPLY_ARITHMETIC$WRITE_TOP_SIM * 2)]
+)
+head(x = analogy_append_word_sence_res, n = 20)
+
+```
+
+---
+
+## 93. アナロジータスクの正解率の計算
+92で作ったデータを用い，各モデルのアナロジータスクの正解率を求めよ．
+```{r nlp100_knock_93}
+
+# データの列番号を指定
+SET_ANALOGY_COL_PROF <- list(
+  TRUE_COL = 4, SELECT_COL = 5
+)
+
+
+# word2vec
+# 全アナロジータスクで一致
+sum(
+  analogy_append_wordvec_res[, SET_ANALOGY_COL_PROF$TRUE_COL] ==
+  analogy_append_wordvec_res[, SET_ANALOGY_COL_PROF$SELECT_COL]
+) / nrow(analogy_eval_word_mat)
+
+# word2vecのモデルとアナロジータスクのデータが対応した数
+nrow(analogy_append_wordvec_res)
+
+# LSI
+# 全アナロジータスクで一致
+sum(
+  analogy_append_word_sence_res[, SET_ANALOGY_COL_PROF$TRUE_COL] ==
+  analogy_append_word_sence_res[, SET_ANALOGY_COL_PROF$SELECT_COL]
+) / nrow(analogy_eval_word_mat)
+
+# LSIのモデルとアナロジータスクのデータが対応した数
+nrow(analogy_append_word_sence_res)
+
+```
+
+---
+
+## 94. WordSimilarity-353での類似度計算
+The WordSimilarity-353 Test Collectionの評価データを入力とし，1列目と2列目の単語の類似度を計算し，各行の末尾に類似度の値を追加するプログラムを作成せよ．このプログラムを85で作成した単語ベクトル，90で作成した単語ベクトルに対して適用せよ．
+```{r nlp100_knock_94}
+
+# 類似度行列から単語ペアの類似度を抽出
+# word_1, word_2, similarity
+extractSimi <- function (
+  word_1, word_2,
+  sim_mat
+){
+
+  if (is.element(el = word_1, set = colnames(x = sim_mat)) &
+      is.element(el = word_2, set = colnames(x = sim_mat))
+  ) {
+    return(
+      dplyr::data_frame(
+        word_1 = word_1,
+        word_2 = word_2,
+        similarity = sim_mat[word_1, word_2]
+      )
+    )
+  } else{
+    return(
+      dplyr::data_frame(
+        word_1 = word_1,
+        word_2 = word_2,
+        similarity = 0
+      )
+    )
+  }
+}
+
+extractWordVecSim <- function (
+  target_words,
+  word_sim_mat, word_sim_word
+) {
+  
+  # 単語数が少ないので一度にコサイン類似度を求める
+  wordvec_sim <- as.matrix(x = 
+    filterCosineSim(
+      seed_word_vector = word_sim_mat,
+      target_word_vectors = NULL,
+      extract_rownames = rownames(x = word_sim_mat)
+    ) %>%
+      replace(x = ., list = is.na(.), values = 0)
+  )
+  diag(x = wordvec_sim) <- 1
+
+  # 計算した類似度行列を使用して、単語同士の類似度を出力
+  return(
+    dplyr::bind_rows(
+      target_words %>%
+        dplyr::rowwise(.) %>%
+        dplyr::do(
+          word2vec_sim = extractSimi(
+            word_1 = .$word_1, word_2 = .$word_2,
+            sim_mat = wordvec_sim
+          )
+        ) %>%
+        .$word2vec_sim
+      )
+  )
+}
+
+
+# 単語ペアの正解データを読み込み
+read_wordsim <- readr::read_csv(
+  file = SET_TASK_FILE_NAMES$SIMILARITY_EVAL, n_max = -1, skip = 1,
+  col_names = c("word_1", "word_2", "similarity_score")
+)
+similarity_word <- unique(as.character(unlist(read_wordsim[, 1:2])))
+
+
+# word2vec
+# 類似度の正解データにありword2vecの結果にない単語があるので、これを除く（word_sim_mat） 
+word2vec_sim_word <- rownames(wordvec_matrix)
+word2vec_sim <- dplyr::left_join(
+  x = read_wordsim,
+  y = extractWordVecSim(
+    target_words = read_wordsim,
+    word_sim_mat =  wordvec_matrix[
+      is.element(el = word2vec_sim_word, set = similarity_word),
+    ],
+    word_sim_word = word2vec_sim_word
+  ),
+  by = c("word_1" = "word_1", "word_2" = "word_2")
+)
+head(x = word2vec_sim, n = 15)
+
+# LSI
+# 類似度の正解データにあり単語の意味ベクトルにない単語があるので、これを除く（word_sim_mat） 
+wordsence_sim_word <- rownames(word_sence)
+wordsence_sim <- dplyr::left_join(
+  x = read_wordsim,
+  y = extractWordVecSim(
+    target_words = read_wordsim,
+    word_sim_mat =  word_sence[
+      is.element(el = wordsence_sim_word, set = similarity_word),
+    ],
+    word_sim_word = wordsence_sim_word
+  ),
+  by = c("word_1" = "word_1", "word_2" = "word_2")
+)
+head(x = wordsence_sim, n = 15)
+
+```
+
+---
+
+## 95. WordSimilarity-353での評価
+94で作ったデータを用い，各モデルが出力する類似度のランキングと，人間の類似度判定のランキングの間のスピアマン相関係数を計算せよ．
+```{r nlp100_knock_95}
+
+# word2vec
+word2vec_sim %>%
+  dplyr::select(similarity_score, similarity) %>%
+  cor(method = "spearman")
+
+# LSI
+wordsence_sim %>%
+  dplyr::select(similarity_score, similarity) %>%
+  cor(method = "spearman")
+
+```
+
+---
+
+## 96. 国名に関するベクトルの抽出
+word2vecの学習結果から，国名に関するベクトルのみを抜き出せ．
+```{r nlp100_knock_96}
+
+# {countrycode}を使って「81.」と同じことをする
+coutry_name <- stringr::str_replace(
+  string = countrycode_data$country.name[
+    !is.na(countrycode_data$cowc) & !is.na(countrycode_data$region)
+  ], 
+  pattern = "\\(.*\\)", replacement = ""
+)
+
+replace_coutry_name <- stringr::str_replace_all(
+  string = coutry_name, pattern = " ", replacement = "_"
+)
+names(replace_coutry_name) <- coutry_name
+
+word2vec_content_word <- rownames(x = wordvec_matrix)
+word2vec_country <- wordvec_matrix[
+  is.element(el = word2vec_content_word, set = replace_coutry_name),
+]
+
+# 国名表示
+head(x = rownames(word2vec_country), n = 20)
+
+```
+
+---
+
+## 97. k-meansクラスタリング
+96の単語ベクトルに対して，k-meansクラスタリングをクラスタ数k=5として実行せよ．
+```{r nlp100_knock_97}
+
+SET_CLUSTER_PARAM <- list(
+  CLUSTER_NUM = 5
+)
+
+
+# K-Means Clustering
+kmean_res <- kmeans(x = word2vec_country, centers = SET_CLUSTER_PARAM$CLUSTER_NUM)
+cluster_res <- dplyr::data_frame(
+  kmean = as.integer(kmean_res$cluster),
+  country = names(kmean_res$cluster)
+)
+cluster_res %>%
+  dplyr::group_by(kmean) %>%
+  tidyr::nest(country) %>%
+  as.data.frame()
+
+```
+
+
+## 98. Ward法によるクラスタリング
+96の単語ベクトルに対して，Ward法による階層型クラスタリングを実行せよ．さらに，クラスタリング結果をデンドログラムとして可視化せよ．
+```{r nlp100_knock_98}
+
+# Hierarchical Clustering
+hclust_res <- hclust(d = dist(x = word2vec_country), method = "ward.D2")
+networkD3::dendroNetwork(
+  hc = hclust_res, 
+  width = 850, height = 3000, zoom = TRUE,
+  linkType = "elbow", treeOrientation = "horizontal"
+)
+
+
+# クラスタリング結果を追記
+cluster_res <- dplyr::left_join(
+  x = cluster_res,
+  y = dplyr::data_frame(
+    country = names(cutree(tree = hclust_res, k = SET_CLUSTER_PARAM$CLUSTER_NUM)),
+    hclust = as.integer(cutree(tree = hclust_res, k = SET_CLUSTER_PARAM$CLUSTER_NUM))
+  ),
+  by = c("country")
+)
+
+# kmeansとhclustの結果の対応
+# 南米、中東の辺りで結果に差異が見られる？
+table(cluster_res$kmean, cluster_res$hclust)
+
+```
+
+```{r coutry_location, cache = TRUE, message = FALSE}
+
+SET_GEO_JSON <- "https://raw.githubusercontent.com/datasets/geo-boundaries-world-110m/master/countries.geojson"
+
+# プロット用にデータ取得 （マッチ数がこちらの方が多い）
+coutry_location <- dplyr::bind_rows(
+  x = lapply(
+    X = rownames(word2vec_country), 
+    FUN = ggmap::geocode,
+    messaging = FALSE, output = "more"
+  )
+) %>% 
+  dplyr::select(country, lon, lat, address, query)
+
+
+# 各国のポリゴンデータ取得 
+download.file(
+  url = SET_GEO_JSON, 
+  destfile = basename(path = SET_GEO_JSON)
+)
+countries_geo <- rgdal::readOGR(dsn = basename(path = SET_GEO_JSON), layer = "OGRGeoJSON")
+countries_geo$admin <- stringr::str_to_lower(string = as.character(countries_geo$admin))
+
+```
+
+```{r map_cluster_plot}
+
+# ポリゴンデータにクラスタリング結果を追加して、クラスタ毎に色分けしてプロット
+plotClusterChoropleth <- function (
+  coutry_polygons, coutry_cluster, cluster_num,
+  plot_param = list(
+    width = 900, height = 600,
+    smooth_factor = 0.2, fill_opacity = 0.5
+  )
+) {
+  
+  coutry_polygons$cluster <- factor(x = coutry_cluster)
+  cluster_factor_pal <- leaflet::colorFactor(
+    palette = topo.colors(n = cluster_num),
+    domain = seq(from = 1, to = cluster_num)
+  )
+
+  coutry_polygons %>% 
+    leaflet::leaflet(
+      data = ., 
+      width = plot_param$width, height = plot_param$height
+    ) %>%
+    leaflet::setView(lng = 60, lat = 0, zoom = 1) %>%
+    leaflet::addTiles() %>% 
+    leaflet::addPolygons(
+      stroke = FALSE, 
+      smoothFactor = plot_param$smooth_factor, fillOpacity = plot_param$fill_opacity,
+      color = ~cluster_factor_pal(cluster)
+    )
+}
+
+
+# 国名のベクトルをクラスタリングした結果毎にマーカーを色分け
+color_pal <- leaflet::colorFactor(
+  palette = topo.colors(n = SET_CLUSTER_PARAM$CLUSTER_NUM),
+  domain = seq(from = 1, to = SET_CLUSTER_PARAM$CLUSTER_NUM)
+)
+cluster_loc <- dplyr::left_join(
+  x = cluster_res,
+  y = coutry_location %>% 
+    dplyr::select(-country),
+  by = c("country" = "query")
+) %>%
+ na.omit(.)
+
+
+# kmeans
+cluster_loc %>%
+  leaflet::leaflet(data = ., width = 900, height = 600) %>% 
+  leaflet::setView(lng = 60, lat = 0, zoom = 1) %>%
+  leaflet::addTiles() %>% 
+  leaflet::addCircleMarkers(
+    lng = ~lon, lat = ~lat,
+    radius = 10, stroke = TRUE,
+    color = ~color_pal(kmean), group = ~kmean
+  )
+
+# hclust
+cluster_loc %>%
+  leaflet::leaflet(data = ., width = 900, height = 600) %>% 
+  leaflet::setView(lng = 60, lat = 0, zoom = 1) %>%
+  leaflet::addTiles() %>% 
+  leaflet::addCircleMarkers(
+    lng = ~lon, lat = ~lat,
+    radius = 10, stroke = TRUE,
+    color = ~color_pal(hclust), group = ~hclust
+  )
+
+# kmeansでは日本とオーストラリア、カナダ、ニュージーランドは同じクラスタ
+# hclustでは日本は異なるクラスタで、オーストラリア、カナダ、ニュージーランドが同じクラスタで
+
+
+# 国別のクラスタリング結果でコロプレス地図
+mapplot_cluster <- cluster_res %>%
+  dplyr::mutate(
+    country = stringr::str_to_lower(
+      string = stringr::str_replace_all(
+        string = .$country, pattern = "_", replacement = " "
+      )
+    )
+  ) %>%
+  dplyr::filter(is.element(set = countries_geo$admin, el = .$country))
+
+# ポリゴンデータとクラスタリング結果の名寄せが失敗した国の数
+sum(!is.element(el = countries_geo$admin, set = mapplot_cluster$country))
+# ポリゴンとクラスタリング結果の両方がマッチする国のみに限定
+countries_geo <- countries_geo[
+  is.element(el = countries_geo$admin, set = mapplot_cluster$country),
+]
+# 一致するようになる
+sum(!is.element(el = countries_geo$admin, set = mapplot_cluster$country))
+
+# ポリゴンデータとクラスタリング結果を対応づけるためにソート
+countries_geo <- countries_geo[order(countries_geo$admin), ]
+
+
+# kmeans
+plotClusterChoropleth(
+  coutry_polygons = countries_geo,
+  coutry_cluster = mapplot_cluster$kmean[order(mapplot_cluster$country)], 
+  cluster_num = SET_CLUSTER_PARAM$CLUSTER_NUM,
+  plot_param = list(
+    width = 900, height = 600,
+    smooth_factor = 0.2, fill_opacity = 0.5
+  )
+)
+
+# hclust
+plotClusterChoropleth(
+  coutry_polygons = countries_geo,
+  coutry_cluster = mapplot_cluster$hclust[order(mapplot_cluster$country)], 
+  cluster_num = SET_CLUSTER_PARAM$CLUSTER_NUM,
+  plot_param = list(
+    width = 900, height = 600,
+    smooth_factor = 0.2, fill_opacity = 0.5
+  )
+)
+
+```
+
+---
+
+## 99. t-SNEによる可視化
+96の単語ベクトルに対して，ベクトル空間をt-SNEで可視化せよ．
+```{r nlp100_knock_99}
+
+# t-SNEでプロット用に3次元に
+word2vec_country_tsne <- tsne::tsne(
+  X = word2vec_country, k = 3, 
+  max_iter = 1000, epoch = 1001
+) 
+
+colnames(x = word2vec_country_tsne) <- c("x", "y", "z")
+cluster_res <- dplyr::bind_cols(
+  cluster_res, 
+  data.frame(word2vec_country_tsne)
+) %>% 
+  print
+
+
+# 色はkmeansによるクラスタリング結果
+# （「形はhclustによるクラスタリング結果」にしたいが未実装）
+# 位置がt-SNEによる次元圧縮の結果
+threejs::scatterplot3js(
+  x = cluster_res$x, y = cluster_res$y, z = cluster_res$z,
+  axis = FALSE, grid = FALSE,
+  color = rainbow(n = length(unique(cluster_res$kmean)))[cluster_res$kmean],
+  # Not yet used
+  pch = cluster_res$hclust,
+  labels = cluster_res$country,
+  width = 900, height = 600, size = 1.00
+)
+
+```
+
+---
+
+---
+
+# 所感  
+- 言語処理100本ノック(2015年版)のベクトル空間法 (2)の章をやってみました（今回はあらかじめコマンドラインで作成した学習結果を読み込みました）。  
+
+- word2vecのC実装をラップしたRパッケージに{tmcn.word2vec}がありますが、各種パラメータの指定ができない点と、繰り返して類似度計算するとフリーズしてしまう症状に見舞われたため（原因までは未調査）、使用しておりません。  
+  https://r-forge.r-project.org/R/?group_id=1571
+
+- word2vecを始めとするDeep Learning関係のライブラリはPython実装が多いので、RにこだわらずPythonを使うといいと思います。ただ、どうしてもR上で処理したいのであれば{PythonInR}でPythonを記述する方法もあります。
+  http://yamano357.hatenadiary.com/entry/2015/10/13/033135  
+　- word2vecよりも性能がよいというGloveも、{PythonInR}を使って動作しました。
+
+- 課題とは関係ないですが、国名に関するベクトルをクラスタリングした結果を{leaflet}で地図にプロットしてみました。kmeansとhclustの結果で割り振られる番号を指定できなくて、配色が変わってしまうのどうにか固定したかったです（クラスタ結果がふたつの方法で同じでも、振られる番号が違うと異なる色になってしまう）。  
+  https://rstudio.github.io/leaflet/colors.html  
+
+- なお、高次元データを可視化する方法にはt-SNE以外にもいくつかあるので、いろいろなデータで試してみると意外な結果が見えるかもしません。  
+　[高次元データの可視化の手法をSwiss rollを例に見てみよう](http://blog.albert2005.co.jp/2014/12/11/高次元データの可視化の手法をswiss-rollを例に見てみよ/)  
+
+- 個人的には、コマンドライン実行せずにRでword2vecをさせたかったです。  
+
+---
+
+---
+
+# 実行環境
+```{r footer}
+library(devtools)
+devtools::session_info()
+```
